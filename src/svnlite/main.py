@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QTranslator, QLocale
-from gui.main_window import MainWindow
+from .gui.main_window import MainWindow
 
 
 def main():
