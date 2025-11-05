@@ -1,7 +1,35 @@
 [project]
 name = "verman"
-version = "0.1.0"
-description = "Add your description here"
+version = "1.0.0"
+description = "一款轻量级的本地文件版本管理工具，支持文件夹绑定、文件变更监控、版本记录和回滚"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.8"
 dependencies = []
+authors = [
+    {name = "Version Manager Team"}
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Version Control",
+    "Topic :: System :: Archiving :: Backup",
+    "Operating System :: OS Independent",
+]
+
+[project.scripts]
+verman = "main:main"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["*"]

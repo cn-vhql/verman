@@ -12,7 +12,8 @@
       "Bash(python:*)",
       "Read(//h/**)",
       "Bash(uv:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(del test.py fix_test.py simple_test.py debug_test.py gui_debug_test.py exact_scenario_test.py gui_state_test.py performance_test.py)"
     ],
     "deny": [],
     "ask": []
