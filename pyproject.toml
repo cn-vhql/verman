@@ -4,7 +4,9 @@ version = "1.0.0"
 description = "一款轻量级的本地文件版本管理工具，支持文件夹绑定、文件变更监控、版本记录和回滚"
 readme = "README.md"
 requires-python = ">=3.8"
-dependencies = []
+dependencies = [
+    "pyinstaller>=6.16.0",
+]
 authors = [
     {name = "Version Manager Team"}
 ]
@@ -29,6 +31,10 @@ verman = "main:main"
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[[tool.uv.index]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true
 
 [tool.setuptools.packages.find]
 where = ["."]
