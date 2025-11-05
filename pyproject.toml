@@ -1,31 +1,7 @@
 [project]
-name = "svnlite"
+name = "verman"
 version = "0.1.0"
-description = "轻量级本地文件版本管理系统（GUI版）"
+description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.8"
-dependencies = [
-    "PyQt6>=6.4.0",
-    "colorama>=0.4.6",
-    "tqdm>=4.64.0"
-]
-
-[project.optional-dependencies]
-dev = [
-    "black>=22.0.0",
-    "flake8>=5.0.0",
-    "pyinstaller>=5.0.0"
-]
-
-[project.scripts]
-svnlite = "svnlite.main:main"
-
-[build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
-
-[tool.setuptools.packages.find]
-where = ["src"]
-
-[tool.setuptools.package-dir]
-"" = "src"
+requires-python = ">=3.11"
+dependencies = []
