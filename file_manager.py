@@ -240,6 +240,7 @@ class FileManager:
         # 默认忽略的文件和目录
         default_ignore = [
             '.verman.db', '*.db', '*.sqlite', '*.sqlite3',
+            '.verman_backup', '.verman_temp',
             '__pycache__', '*.pyc', '*.pyo',
             '.git', '.svn', '.hg',
             '*.tmp', '*.temp', '*.log',

@@ -30,20 +30,36 @@ _logger = _SimpleLogger()
 class VersionManager:
     """版本管理器，负责版本的核心操作"""
 
-    def __init__(self, db_manager: DatabaseManager, file_manager: FileManager):
+    def __init__(self, db_manager: DatabaseManager, file_manager: FileManager, config_manager=None):
         """
         初始化版本管理器
 
         Args:
             db_manager: 数据库管理器
             file_manager: 文件管理器
+            config_manager: 配置管理器（用于获取忽略模式）
         """
         self.db_manager = db_manager
         self.file_manager = file_manager
+        self.config_manager = config_manager
         self._operation_lock = threading.Lock()
         self._last_scan_cache = None
         self._last_scan_time = 0
         self._cache_ttl = 1.0  # 缓存1秒
+
+    def _get_ignore_patterns(self) -> List[str]:
+        """
+        获取忽略模式列表
+
+        Returns:
+            忽略模式列表
+        """
+        if self.config_manager:
+            try:
+                return self.config_manager.get_ignore_patterns()
+            except Exception as e:
+                _logger.warning(f"获取忽略模式失败: {e}")
+        return []
 
     def get_current_changes(self) -> List[Dict]:
         """
@@ -154,7 +170,8 @@ class VersionManager:
 
             # 缓存失效，重新扫描
             try:
-                self._last_scan_cache = self.file_manager.scan_workspace()
+                ignore_patterns = self._get_ignore_patterns()
+                self._last_scan_cache = self.file_manager.scan_workspace(ignore_patterns)
                 self._last_scan_time = current_time
                 return self._last_scan_cache
             except Exception as e:
@@ -248,7 +265,8 @@ class VersionManager:
         """
         try:
             # 直接扫描，不使用缓存以确保最新状态
-            current_files = self.file_manager.scan_workspace()
+            ignore_patterns = self._get_ignore_patterns()
+            current_files = self.file_manager.scan_workspace(ignore_patterns)
 
             # 获取最新版本的文件状态
             latest_version_id = self.db_manager.get_latest_version_id()
@@ -290,7 +308,8 @@ class VersionManager:
         import os
 
         # 1. 获取当前工作区的所有文件状态
-        current_files = self.file_manager.scan_workspace()
+        ignore_patterns = self._get_ignore_patterns()
+        current_files = self.file_manager.scan_workspace(ignore_patterns)
 
         # 2. 获取最新版本的文件状态（用于对比）
         latest_version_id = self.db_manager.get_latest_version_id()
@@ -428,6 +447,9 @@ class VersionManager:
         """清除扫描缓存"""
         self._last_scan_cache = None
         self._last_scan_time = 0
+        # 同时清除文件管理器的哈希缓存
+        if hasattr(self.file_manager, 'clear_hash_cache'):
+            self.file_manager.clear_hash_cache()
 
     def _verify_rollback_result(self, expected_files: List[Dict]) -> bool:
         """
@@ -441,7 +463,8 @@ class VersionManager:
         """
         try:
             # 扫描当前工作区
-            current_files = self.file_manager.scan_workspace()
+            ignore_patterns = self._get_ignore_patterns()
+            current_files = self.file_manager.scan_workspace(ignore_patterns)
 
             # 检查文件是否正确恢复
             expected_file_map = {

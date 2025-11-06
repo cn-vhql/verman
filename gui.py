@@ -12,6 +12,7 @@ from project_manager import ProjectManager
 from version_manager import VersionManager
 from dialogs import VersionCompareDialog, VersionDetailsDialog
 from config import config_manager
+from logger import operation_logger
 
 
 class VersionManagerGUI:
@@ -77,6 +78,13 @@ class VersionManagerGUI:
         settings_menu.add_command(label="配置设置", command=self._show_settings)
         settings_menu.add_separator()
         settings_menu.add_command(label="右键菜单管理", command=self._manage_context_menu)
+
+        # 日志菜单
+        log_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="日志", menu=log_menu)
+        log_menu.add_command(label="查看操作日志", command=self._show_operation_logs)
+        log_menu.add_separator()
+        log_menu.add_command(label="清空日志", command=self._clear_logs)
 
         # 帮助菜单
         help_menu = tk.Menu(menubar, tearoff=0)
@@ -152,6 +160,9 @@ class VersionManagerGUI:
 
         # 版本列表绑定右键菜单事件
         self.versions_tree.bind('<Button-3>', self._on_version_right_click)
+
+        # 版本列表绑定选中变化事件
+        self.versions_tree.bind('<<TreeviewSelect>>', self._on_version_select)
 
         # 操作按钮框架
         buttons_frame = ttk.Frame(right_frame)
@@ -275,17 +286,21 @@ class VersionManagerGUI:
         # 创建项目
         if self.project_manager.create_project(workspace_path):
             messagebox.showinfo("成功", "项目创建成功")
+            # 记录操作日志
+            operation_logger.log_project_created(workspace_path)
             # 添加到最近项目
             config_manager.add_recent_project(workspace_path)
             self._update_recent_projects_menu()
 
             self.version_manager = VersionManager(
                 self.project_manager.get_database_manager(),
-                self.project_manager.get_file_manager()
+                self.project_manager.get_file_manager(),
+                config_manager
             )
             self._refresh_data()
         else:
             messagebox.showerror("错误", "项目创建失败，可能是目录不存在或已经是项目")
+            operation_logger.log_error("创建项目", f"项目创建失败: {workspace_path}", workspace_path)
 
     def _open_project(self, workspace_path: str = None):
         """打开项目"""
@@ -300,17 +315,21 @@ class VersionManagerGUI:
         # 打开项目
         if self.project_manager.open_project(workspace_path):
             # messagebox.showinfo("成功", "项目打开成功")
+            # 记录操作日志
+            operation_logger.log_project_opened(workspace_path)
             # 添加到最近项目
             config_manager.add_recent_project(workspace_path)
             self._update_recent_projects_menu()
 
             self.version_manager = VersionManager(
                 self.project_manager.get_database_manager(),
-                self.project_manager.get_file_manager()
+                self.project_manager.get_file_manager(),
+                config_manager
             )
             self._refresh_data()
         else:
             messagebox.showerror("错误", "项目打开失败，可能是目录不存在或不是有效的项目")
+            operation_logger.log_error("打开项目", f"项目打开失败: {workspace_path}", workspace_path)
 
     def _close_project(self):
         """关闭项目"""
@@ -318,10 +337,15 @@ class VersionManagerGUI:
             return
 
         if messagebox.askyesno("确认", "确定要关闭当前项目吗？"):
+            project_path = self.project_manager.get_current_project_path()
             self.project_manager.close_project()
             self.version_manager = None
             self.current_changes = []
             self.all_versions = []
+
+            # 记录操作日志
+            if project_path:
+                operation_logger.log_project_closed(project_path)
 
             # 清空界面
             self._update_changes_tree()
@@ -371,11 +395,21 @@ class VersionManagerGUI:
             version_number = self.version_manager.create_version(description.strip())
             if version_number:
                 # messagebox.showinfo("成功", f"版本 {version_number} 创建成功")
+                # 记录操作日志
+                project_path = self.project_manager.get_current_project_path()
+                operation_logger.log_version_created(
+                    version_number,
+                    description.strip(),
+                    len(self.current_changes),
+                    project_path
+                )
                 self._refresh_data()
             else:
                 messagebox.showerror("错误", "版本创建失败")
         except Exception as e:
             messagebox.showerror("错误", f"版本创建失败: {e}")
+            project_path = self.project_manager.get_current_project_path()
+            operation_logger.log_error("创建版本", str(e), project_path)
 
     def _rollback_version(self):
         """回滚版本"""
@@ -403,20 +437,31 @@ class VersionManagerGUI:
 
         # 确认回滚
         confirm_message = f"确定要回滚到版本 {version_number} 吗？\n\n这将恢复工作区到该版本的状态。"
-        if messagebox.askyesno("确认回滚", confirm_message):
-            # 询问是否备份当前状态（使用配置默认值）
-            default_backup = config_manager.is_auto_backup_enabled()
-            backup = messagebox.askyesno("备份", f"是否备份当前状态？\n(默认设置: {'是' if default_backup else '否'})")
+        try:
+            result = messagebox.askyesno("确认回滚", confirm_message)
+            if result:  # 只有用户点击"是"时才继续
+                # 询问是否备份当前状态（使用配置默认值）
+                default_backup = config_manager.is_auto_backup_enabled()
+                backup_message = f"是否备份当前状态？\n(默认设置: {'是' if default_backup else '否'})"
+                backup_result = messagebox.askyesno("备份", backup_message)
 
-            try:
-                success = self.version_manager.rollback_to_version(version_id, backup)
-                if success:
-                    messagebox.showinfo("成功", f"已成功回滚到版本 {version_number}")
-                    self._refresh_data()
-                else:
-                    messagebox.showerror("错误", "回滚失败")
-            except Exception as e:
-                messagebox.showerror("错误", f"回滚失败: {e}")
+                try:
+                    success = self.version_manager.rollback_to_version(version_id, backup_result)
+                    if success:
+                        messagebox.showinfo("成功", f"已成功回滚到版本 {version_number}")
+                        # 记录操作日志
+                        project_path = self.project_manager.get_current_project_path()
+                        operation_logger.log_version_rollback(version_number, backup_result, project_path)
+                        self._refresh_data()
+                    else:
+                        messagebox.showerror("错误", "回滚失败")
+                except Exception as e:
+                    messagebox.showerror("错误", f"回滚失败: {e}")
+                    project_path = self.project_manager.get_current_project_path()
+                    operation_logger.log_error("回滚版本", str(e), project_path)
+        except Exception as e:
+            # 处理可能的对话框异常（比如用户点击关闭按钮）
+            pass
 
     def _export_version(self):
         """导出版本"""
@@ -451,10 +496,15 @@ class VersionManagerGUI:
             success = self.version_manager.export_version(version_id, export_path)
             if success:
                 messagebox.showinfo("成功", f"版本 {version_number} 已导出到 {export_path}")
+                # 记录操作日志
+                project_path = self.project_manager.get_current_project_path()
+                operation_logger.log_version_exported(version_number, export_path, project_path)
             else:
                 messagebox.showerror("错误", "导出失败")
         except Exception as e:
             messagebox.showerror("错误", f"导出失败: {e}")
+            project_path = self.project_manager.get_current_project_path()
+            operation_logger.log_error("导出版本", str(e), project_path)
 
     def _compare_versions(self):
         """比较版本"""
@@ -470,6 +520,11 @@ class VersionManagerGUI:
             dialog.show()
         except Exception as e:
             messagebox.showerror("错误", f"版本对比失败: {e}")
+
+    def _on_version_select(self, event):
+        """版本列表选中变化事件"""
+        # 当选中变化时，更新界面状态（特别是按钮状态）
+        self._update_ui_state()
 
     def _on_version_double_click(self, event):
         """版本列表双击事件"""
@@ -668,7 +723,11 @@ class VersionManagerGUI:
         dialog = SettingsDialog(self.root, config_manager)
         self.root.wait_window(dialog.dialog)
         # 设置对话框关闭后刷新相关状态
-        self._update_ui_state()
+        # 需要刷新数据以应用新的忽略文件模式
+        if self.project_manager.is_project_open():
+            self._refresh_data()
+        else:
+            self._update_ui_state()
 
     def _manage_context_menu(self):
         """管理右键菜单"""
@@ -682,6 +741,20 @@ class VersionManagerGUI:
         about_text += "支持文件变更监控、版本记录和回滚\n\n"
         about_text += "版本: 1.0.0"
         messagebox.showinfo("关于", about_text)
+
+    def _show_operation_logs(self):
+        """显示操作日志对话框"""
+        dialog = LogViewerDialog(self.root)
+        self.root.wait_window(dialog.dialog)
+
+    def _clear_logs(self):
+        """清空日志"""
+        if messagebox.askyesno("确认", "确定要清空所有操作日志吗？此操作无法撤销。"):
+            try:
+                operation_logger.clear_logs()
+                messagebox.showinfo("成功", "日志已清空")
+            except Exception as e:
+                messagebox.showerror("错误", f"清空日志失败: {e}")
 
     def run(self):
         """运行GUI应用"""
@@ -1105,3 +1178,207 @@ class ContextMenuManagerDialog:
         except Exception as e:
             messagebox.showerror("错误", f"删除注册表项失败: {e}")
             return False
+
+
+class LogViewerDialog:
+    """日志查看对话框"""
+
+    def __init__(self, parent):
+        """初始化日志查看对话框"""
+        self.parent = parent
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("操作日志")
+        self.dialog.geometry("800x500")
+        self.dialog.resizable(True, True)
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+
+        # 居中显示对话框
+        self._center_dialog()
+
+        self._create_widgets()
+        self._load_logs()
+
+    def _center_dialog(self):
+        """将对话框居中显示在父窗口上"""
+        self.dialog.update_idletasks()
+
+        # 获取对话框的尺寸
+        dialog_width = self.dialog.winfo_width()
+        dialog_height = self.dialog.winfo_height()
+
+        # 获取父窗口的位置和尺寸
+        parent_x = self.parent.winfo_rootx()
+        parent_y = self.parent.winfo_rooty()
+        parent_width = self.parent.winfo_width()
+        parent_height = self.parent.winfo_height()
+
+        # 计算居中位置
+        x = parent_x + (parent_width // 2) - (dialog_width // 2)
+        y = parent_y + (parent_height // 2) - (dialog_height // 2)
+
+        # 确保对话框不会超出屏幕边界
+        screen_width = self.dialog.winfo_screenwidth()
+        screen_height = self.dialog.winfo_screenheight()
+
+        if x < 0:
+            x = 0
+        if y < 0:
+            y = 0
+        if x + dialog_width > screen_width:
+            x = screen_width - dialog_width
+        if y + dialog_height > screen_height:
+            y = screen_height - dialog_height
+
+        # 设置对话框位置
+        self.dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
+
+    def _create_widgets(self):
+        """创建界面组件"""
+        # 主框架
+        main_frame = ttk.Frame(self.dialog)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        # 控制面板
+        control_frame = ttk.Frame(main_frame)
+        control_frame.pack(fill=tk.X, pady=(0, 10))
+
+        # 筛选控件
+        ttk.Label(control_frame, text="筛选:").pack(side=tk.LEFT, padx=(0, 5))
+
+        self.filter_var = tk.StringVar(value="全部")
+        filter_combo = ttk.Combobox(control_frame, textvariable=self.filter_var,
+                                   values=["全部", "INFO", "WARNING", "ERROR"],
+                                   state="readonly", width=10)
+        filter_combo.pack(side=tk.LEFT, padx=(0, 10))
+        filter_combo.bind('<<ComboboxSelected>>', self._filter_logs)
+
+        # 刷新按钮
+        ttk.Button(control_frame, text="刷新", command=self._load_logs).pack(side=tk.LEFT, padx=(0, 5))
+
+        # 清空按钮
+        ttk.Button(control_frame, text="清空日志", command=self._clear_logs).pack(side=tk.LEFT, padx=(0, 5))
+
+        # 日志数量显示
+        self.count_label = ttk.Label(control_frame, text="共 0 条日志")
+        self.count_label.pack(side=tk.RIGHT)
+
+        # 日志列表
+        log_frame = ttk.Frame(main_frame)
+        log_frame.pack(fill=tk.BOTH, expand=True)
+
+        # 创建Treeview
+        columns = ('时间', '级别', '操作', '详情', '项目路径')
+        self.log_tree = ttk.Treeview(log_frame, columns=columns, show='headings')
+
+        # 设置列标题和宽度
+        self.log_tree.heading('时间', text='时间')
+        self.log_tree.heading('级别', text='级别')
+        self.log_tree.heading('操作', text='操作')
+        self.log_tree.heading('详情', text='详情')
+        self.log_tree.heading('项目路径', text='项目路径')
+
+        self.log_tree.column('时间', width=140, anchor=tk.CENTER)
+        self.log_tree.column('级别', width=80, anchor=tk.CENTER)
+        self.log_tree.column('操作', width=120, anchor=tk.W)
+        self.log_tree.column('详情', width=300, anchor=tk.W)
+        self.log_tree.column('项目路径', width=200, anchor=tk.W)
+
+        # 滚动条
+        scrollbar = ttk.Scrollbar(log_frame, orient=tk.VERTICAL, command=self.log_tree.yview)
+        self.log_tree.configure(yscrollcommand=scrollbar.set)
+
+        self.log_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # 按钮框架
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=(10, 0))
+
+        ttk.Button(button_frame, text="关闭", command=self.dialog.destroy).pack(side=tk.RIGHT)
+
+    def _load_logs(self):
+        """加载日志"""
+        try:
+            # 获取所有日志
+            all_logs = operation_logger.get_logs()
+            self.all_logs = all_logs
+
+            # 应用筛选
+            self._filter_logs()
+        except Exception as e:
+            messagebox.showerror("错误", f"加载日志失败: {e}")
+
+    def _filter_logs(self, event=None):
+        """筛选日志"""
+        try:
+            # 清空现有内容
+            for item in self.log_tree.get_children():
+                self.log_tree.delete(item)
+
+            # 获取筛选条件
+            filter_level = self.filter_var.get()
+
+            # 筛选日志
+            if filter_level == "全部":
+                filtered_logs = self.all_logs
+            else:
+                filtered_logs = [log for log in self.all_logs if log.get("level") == filter_level]
+
+            # 添加到Treeview
+            for log in reversed(filtered_logs):  # 最新的在前
+                # 根据级别设置颜色标签
+                tags = ()
+                level = log.get("level", "INFO")
+                if level == "ERROR":
+                    tags = ("error",)
+                elif level == "WARNING":
+                    tags = ("warning",)
+
+                self.log_tree.insert('', tk.END, values=(
+                    log.get("timestamp", ""),
+                    log.get("level", ""),
+                    log.get("action", ""),
+                    log.get("details", ""),
+                    log.get("project_path", "")
+                ), tags=tags)
+
+            # 设置标签颜色
+            self.log_tree.tag_configure("error", foreground="red")
+            self.log_tree.tag_configure("warning", foreground="orange")
+
+            # 更新计数
+            self.count_label.config(text=f"共 {len(filtered_logs)} 条日志")
+
+        except Exception as e:
+            messagebox.showerror("错误", f"筛选日志失败: {e}")
+
+    def _clear_logs(self):
+        """清空日志"""
+        if messagebox.askyesno("确认", "确定要清空所有操作日志吗？此操作无法撤销。"):
+            try:
+                operation_logger.clear_logs()
+                self._load_logs()
+                messagebox.showinfo("成功", "日志已清空")
+            except Exception as e:
+                messagebox.showerror("错误", f"清空日志失败: {e}")
+
+    def show(self):
+        """显示对话框"""
+        try:
+            self.dialog.wait_window()
+        finally:
+            self._cleanup()
+
+    def _cleanup(self):
+        """清理对话框资源"""
+        try:
+            if hasattr(self, 'dialog') and self.dialog.winfo_exists():
+                # 清理Treeview组件
+                if hasattr(self, 'log_tree'):
+                    for item in self.log_tree.get_children():
+                        self.log_tree.delete(item)
+                # 销毁对话框
+                self.dialog.destroy()
+        except Exception:
+            pass

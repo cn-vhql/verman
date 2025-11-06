@@ -6,6 +6,10 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from typing import List, Dict, Optional
+import os
+import tempfile
+import subprocess
+import platform
 
 
 class VersionCompareDialog:
@@ -397,6 +401,9 @@ class VersionDetailsDialog:
         self.files_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
+        # 绑定双击事件
+        self.files_tree.bind('<Double-Button-1>', self._on_file_double_click)
+
         # 填充文件列表
         self._fill_files_list()
 
@@ -415,10 +422,103 @@ class VersionDetailsDialog:
                 status = '新增'
             elif status == 'MODIFY':
                 status = '修改'
+            elif status == 'UNMODIFIED':
+                status = '未变更'
             elif status == 'DELETE':
                 status = '删除'
 
             self.files_tree.insert('', tk.END, values=(status, file_info['relative_path']))
+
+    def _on_file_double_click(self, event):
+        """文件列表双击事件"""
+        # 获取选中的文件
+        selected_items = self.files_tree.selection()
+        if not selected_items:
+            return
+
+        selected_item = selected_items[0]
+        file_path = self.files_tree.item(selected_item)['values'][1]
+
+        # 获取文件信息
+        files = self.version_info.get('files', [])
+        file_info = None
+        for file in files:
+            if file['relative_path'] == file_path:
+                file_info = file
+                break
+
+        if not file_info:
+            messagebox.showerror("错误", "无法找到文件信息")
+            return
+
+        # 检查文件状态
+        if file_info['file_status'] == 'DELETE':
+            messagebox.showinfo("提示", "已删除的文件无法打开")
+            return
+
+        # 尝试打开文件
+        self._open_file_from_version(file_info)
+
+    def _open_file_from_version(self, file_info):
+        """从版本中打开文件"""
+        try:
+            # 获取文件内容
+            file_content = file_info.get('file_content')
+
+            # 如果文件内容为空且是未变更文件，尝试从工作区读取
+            if not file_content and file_info['file_status'] == 'unmodified':
+                try:
+                    # 尝试从当前工作区读取文件
+                    current_path = os.path.join(os.getcwd(), file_info['relative_path'])
+                    if os.path.exists(current_path):
+                        with open(current_path, 'rb') as f:
+                            file_content = f.read()
+                    else:
+                        messagebox.showinfo("提示", "未变更文件在工作区中不存在，无法打开")
+                        return
+                except Exception as e:
+                    messagebox.showinfo("提示", f"无法读取未变更文件: {e}")
+                    return
+
+            if not file_content:
+                messagebox.showerror("错误", "文件内容为空")
+                return
+
+            # 创建临时文件
+            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file_info['relative_path'])[1]) as temp_file:
+                # 如果是二进制内容，直接写入；如果是文本内容，确保正确编码
+                if isinstance(file_content, bytes):
+                    temp_file.write(file_content)
+                else:
+                    temp_file.write(file_content.encode('utf-8'))
+                temp_file_path = temp_file.name
+
+            # 使用系统默认程序打开文件
+            self._open_with_system_default(temp_file_path)
+
+        except Exception as e:
+            messagebox.showerror("错误", f"打开文件失败: {e}")
+
+    def _open_with_system_default(self, file_path):
+        """使用系统默认程序打开文件"""
+        try:
+            system = platform.system()
+
+            if system == 'Windows':
+                # Windows系统
+                os.startfile(file_path)
+            elif system == 'Darwin':
+                # macOS系统
+                subprocess.run(['open', file_path])
+            elif system == 'Linux':
+                # Linux系统
+                subprocess.run(['xdg-open', file_path])
+            else:
+                messagebox.showinfo("提示", f"不支持的操作系统: {system}")
+                return
+
+        except Exception as e:
+            messagebox.showerror("错误", f"打开文件失败: {e}")
 
     def show(self):
         """显示对话框"""

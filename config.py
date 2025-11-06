@@ -23,7 +23,8 @@ class ConfigManager:
             "window_geometry": "",
             "ignore_patterns": [
                 "*.log", "*.tmp", "*.temp", "__pycache__", "*.pyc",
-                ".git", ".svn", ".hg", ".DS_Store", "Thumbs.db"
+                ".git", ".svn", ".hg", ".DS_Store", "Thumbs.db",
+                ".verman_backup", ".verman_temp"
             ],
             "auto_backup": True,
             "max_versions_in_memory": 100
@@ -114,7 +115,8 @@ class ConfigManager:
             "window_geometry": "",
             "ignore_patterns": [
                 "*.log", "*.tmp", "*.temp", "__pycache__", "*.pyc",
-                ".git", ".svn", ".hg", ".DS_Store", "Thumbs.db"
+                ".git", ".svn", ".hg", ".DS_Store", "Thumbs.db",
+                ".verman_backup", ".verman_temp"
             ],
             "auto_backup": True,
             "max_versions_in_memory": 100

@@ -6,8 +6,9 @@
 import logging
 import os
 import sys
+import json
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, Dict
 import traceback
 
 
@@ -186,3 +187,115 @@ def get_error_context() -> dict:
         'python_version': sys.version,
         'traceback': traceback.format_exc() if sys.exc_info()[0] else None
     }
+
+
+class OperationLogger:
+    """操作日志记录器，用于记录用户操作历史"""
+
+    def __init__(self):
+        """初始化操作日志记录器"""
+        self.log_file = os.path.join(os.path.expanduser("~"), ".verman", "operation_logs.json")
+        self.max_logs = 500  # 最大保留日志条数
+        self._load_logs()
+
+    def _load_logs(self):
+        """加载操作日志"""
+        try:
+            if os.path.exists(self.log_file):
+                with open(self.log_file, 'r', encoding='utf-8') as f:
+                    self.logs = json.load(f)
+            else:
+                self.logs = []
+        except Exception:
+            self.logs = []
+
+    def _save_logs(self):
+        """保存操作日志"""
+        try:
+            # 确保目录存在
+            log_dir = os.path.dirname(self.log_file)
+            if not os.path.exists(log_dir):
+                os.makedirs(log_dir)
+
+            # 限制日志数量
+            if len(self.logs) > self.max_logs:
+                self.logs = self.logs[-self.max_logs:]
+
+            with open(self.log_file, 'w', encoding='utf-8') as f:
+                json.dump(self.logs, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def log_operation(self, action: str, details: str = "", project_path: str = "", level: str = "INFO"):
+        """记录操作日志
+
+        Args:
+            action: 操作类型
+            details: 操作详情
+            project_path: 项目路径
+            level: 日志级别 (INFO, WARNING, ERROR)
+        """
+        log_entry = {
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "level": level.upper(),
+            "action": action,
+            "details": details,
+            "project_path": project_path
+        }
+
+        self.logs.append(log_entry)
+        self._save_logs()
+
+    def log_project_created(self, project_path: str):
+        """记录项目创建"""
+        self.log_operation("创建项目", f"项目路径: {project_path}", project_path, "INFO")
+
+    def log_project_opened(self, project_path: str):
+        """记录项目打开"""
+        self.log_operation("打开项目", f"项目路径: {project_path}", project_path, "INFO")
+
+    def log_project_closed(self, project_path: str):
+        """记录项目关闭"""
+        self.log_operation("关闭项目", f"项目路径: {project_path}", project_path, "INFO")
+
+    def log_version_created(self, version_number: str, description: str, file_count: int, project_path: str):
+        """记录版本创建"""
+        details = f"版本号: {version_number}, 描述: {description or '无描述'}, 文件数: {file_count}"
+        self.log_operation("创建版本", details, project_path, "INFO")
+
+    def log_version_rollback(self, version_number: str, backup: bool, project_path: str):
+        """记录版本回滚"""
+        details = f"回滚到版本: {version_number}, 备份: {'是' if backup else '否'}"
+        self.log_operation("回滚版本", details, project_path, "WARNING")
+
+    def log_version_exported(self, version_number: str, export_path: str, project_path: str):
+        """记录版本导出"""
+        details = f"版本号: {version_number}, 导出路径: {export_path}"
+        self.log_operation("导出版本", details, project_path, "INFO")
+
+    def log_error(self, action: str, error: str, project_path: str = ""):
+        """记录错误"""
+        self.log_operation(f"错误 - {action}", f"错误信息: {error}", project_path, "ERROR")
+
+    def get_logs(self, limit: int = None) -> List[Dict]:
+        """获取日志"""
+        if limit:
+            return self.logs[-limit:] if len(self.logs) > limit else self.logs
+        return self.logs.copy()
+
+    def clear_logs(self):
+        """清空日志"""
+        self.logs = []
+        self._save_logs()
+
+    def get_logs_by_project(self, project_path: str) -> List[Dict]:
+        """获取指定项目的日志"""
+        return [log for log in self.logs if log.get("project_path") == project_path]
+
+    def get_logs_by_level(self, level: str) -> List[Dict]:
+        """获取指定级别的日志"""
+        return [log for log in self.logs if log.get("level") == level.upper()]
+
+
+# 全局操作日志实例
+operation_logger = OperationLogger()
