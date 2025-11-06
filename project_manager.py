@@ -40,6 +40,9 @@ class ProjectManager:
             if os.path.exists(db_path):
                 return False
 
+            # 创建忽略文件
+            self._create_ignore_file(workspace_path)
+
             # 创建数据库
             self.db_manager = DatabaseManager(db_path)
 
@@ -183,6 +186,105 @@ class ProjectManager:
         except Exception as e:
             print(f"获取项目信息失败: {e}")
             return None
+
+    def _create_ignore_file(self, workspace_path: str):
+        """
+        创建基础的忽略文件
+
+        Args:
+            workspace_path: 工作区路径
+        """
+        try:
+            ignore_file_path = os.path.join(workspace_path, '.vermanignore')
+
+            # 如果文件已存在，不覆盖
+            if os.path.exists(ignore_file_path):
+                return
+
+            # 定义基础忽略规则
+            ignore_content = """# VerMan 忽略文件
+# 此文件用于指定版本管理中需要忽略的文件和目录
+
+# 版本管理数据库
+.verman.db
+.verman_backup/
+
+# Python 相关
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# 虚拟环境
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE 相关
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 临时文件
+*.tmp
+*.temp
+*.log
+*.bak
+*.backup
+
+# 编译文件
+*.o
+*.obj
+*.exe
+*.dll
+*.class
+
+# 压缩文件
+*.zip
+*.tar.gz
+*.rar
+
+# 文档缓存
+*.aux
+*.toc
+*.out
+*.bbl
+*.blg
+"""
+
+            with open(ignore_file_path, 'w', encoding='utf-8') as f:
+                f.write(ignore_content)
+
+        except Exception as e:
+            print(f"创建忽略文件失败: {e}")
 
     def _get_current_time(self) -> str:
         """获取当前时间字符串"""

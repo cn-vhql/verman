@@ -197,6 +197,12 @@ class VersionManagerGUI:
             return
 
         try:
+            # 清除缓存，确保获取最新状态
+            if self.version_manager:
+                self.version_manager._clear_scan_cache()
+                if hasattr(self.version_manager.file_manager, 'clear_hash_cache'):
+                    self.version_manager.file_manager.clear_hash_cache()
+
             # 刷新变更列表
             if self.version_manager:
                 self.current_changes = self.version_manager.get_current_changes()
