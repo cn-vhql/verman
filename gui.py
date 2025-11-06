@@ -137,8 +137,8 @@ class VersionManagerGUI:
 
         self.versions_tree.column('版本号', width=100, anchor=tk.CENTER)
         self.versions_tree.column('时间', width=140, anchor=tk.CENTER)
-        self.versions_tree.column('描述', width=200, anchor=tk.W)
-        self.versions_tree.column('变更数', width=80, anchor=tk.CENTER)
+        self.versions_tree.column('描述', width=300, anchor=tk.W)
+        self.versions_tree.column('变更数', width=100, anchor=tk.CENTER)
 
         # 版本列表滚动条
         versions_scrollbar = ttk.Scrollbar(versions_frame, orient=tk.VERTICAL, command=self.versions_tree.yview)
@@ -149,6 +149,9 @@ class VersionManagerGUI:
 
         # 版本列表绑定双击事件
         self.versions_tree.bind('<Double-Button-1>', self._on_version_double_click)
+
+        # 版本列表绑定右键菜单事件
+        self.versions_tree.bind('<Button-3>', self._on_version_right_click)
 
         # 操作按钮框架
         buttons_frame = ttk.Frame(right_frame)
@@ -263,7 +266,9 @@ class VersionManagerGUI:
     def _new_project(self):
         """新建项目"""
         # 选择工作区目录
-        workspace_path = filedialog.askdirectory(title="选择工作区目录")
+        # 获取当前工作目录作为默认路径
+        current_dir = os.getcwd()
+        workspace_path = filedialog.askdirectory(title="选择工作区目录", initialdir=current_dir)
         if not workspace_path:
             return
 
@@ -286,7 +291,9 @@ class VersionManagerGUI:
         """打开项目"""
         # 选择工作区目录
         if workspace_path is None:
-            workspace_path = filedialog.askdirectory(title="选择项目目录")
+            # 获取当前工作目录作为默认路径
+            current_dir = os.getcwd()
+            workspace_path = filedialog.askdirectory(title="选择项目目录", initialdir=current_dir)
         if not workspace_path:
             return
 
@@ -495,6 +502,63 @@ class VersionManagerGUI:
         except Exception as e:
             messagebox.showerror("错误", f"获取版本详情失败: {e}")
 
+    def _on_version_right_click(self, event):
+        """版本列表右键菜单事件"""
+        if not self.version_manager:
+            return
+
+        # 获取点击位置的项目
+        item = self.versions_tree.identify('item', event.x, event.y)
+        if not item:
+            return
+
+        # 选中该项目
+        self.versions_tree.selection_set(item)
+
+        # 创建右键菜单
+        context_menu = tk.Menu(self.root, tearoff=0)
+        context_menu.add_command(label="查看详情", command=self._show_version_details)
+        context_menu.add_separator()
+        context_menu.add_command(label="导出版本", command=self._export_version)
+        context_menu.add_command(label="回滚版本", command=self._rollback_version)
+
+        # 显示右键菜单
+        try:
+            context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            context_menu.grab_release()
+
+    def _show_version_details(self):
+        """显示版本详情"""
+        if not self.version_manager:
+            return
+
+        # 获取选中的版本
+        selected_items = self.versions_tree.selection()
+        if not selected_items:
+            return
+
+        # 获取版本信息
+        selected_item = selected_items[0]
+        version_number = self.versions_tree.item(selected_item)['values'][0]
+        version_id = None
+        for version in self.all_versions:
+            if version['version_number'] == version_number:
+                version_id = version['id']
+                break
+
+        if version_id is None:
+            return
+
+        try:
+            # 获取版本详细信息
+            version_details = self.version_manager.get_version_details(version_id)
+            if version_details:
+                dialog = VersionDetailsDialog(self.root, version_details)
+                dialog.show()
+        except Exception as e:
+            messagebox.showerror("错误", f"获取版本详情失败: {e}")
+
     def _update_recent_projects_menu(self):
         """更新最近项目菜单"""
         # 清空现有菜单项
@@ -503,10 +567,12 @@ class VersionManagerGUI:
         recent_projects = config_manager.get_recent_projects()
         if recent_projects:
             for i, project_path in enumerate(recent_projects):
-                # 只显示路径的最后一部分作为菜单项名称
-                display_name = os.path.basename(project_path)
-                if len(display_name) > 30:
-                    display_name = display_name[:27] + "..."
+                # 显示完整的项目路径
+                if len(project_path) > 50:
+                    # 如果路径太长，从后往前截断，保留开头的重要部分
+                    display_name = "..." + project_path[-47:]
+                else:
+                    display_name = project_path
                 self.recent_menu.add_command(
                     label=f"{i+1}. {display_name}",
                     command=lambda p=project_path: self._open_project(p)
@@ -519,6 +585,11 @@ class VersionManagerGUI:
         from tkinter import simpledialog
 
         class VersionDescriptionDialog(simpledialog.Dialog):
+            def __init__(self, parent, title=None):
+                """初始化对话框"""
+                self.parent = parent
+                super().__init__(parent, title)
+
             def body(self, master):
                 """创建对话框主体"""
                 ttk.Label(master, text="请输入版本描述:").grid(row=0, column=0, padx=5, pady=5)
@@ -540,6 +611,53 @@ class VersionManagerGUI:
             def apply(self):
                 """获取用户输入"""
                 self.result = self.text_widget.get(1.0, tk.END).strip()
+
+            def _center_dialog(self):
+                """将对话框居中显示在父窗口上"""
+                self.update_idletasks()
+
+                # 获取对话框的尺寸
+                dialog_width = self.winfo_width()
+                dialog_height = self.winfo_height()
+
+                # 如果尺寸为0，使用默认值
+                if dialog_width <= 1:
+                    dialog_width = 400
+                if dialog_height <= 1:
+                    dialog_height = 200
+
+                # 获取父窗口的位置和尺寸
+                parent_x = self.parent.winfo_rootx()
+                parent_y = self.parent.winfo_rooty()
+                parent_width = self.parent.winfo_width()
+                parent_height = self.parent.winfo_height()
+
+                # 计算居中位置
+                x = parent_x + (parent_width // 2) - (dialog_width // 2)
+                y = parent_y + (parent_height // 2) - (dialog_height // 2)
+
+                # 确保对话框不会超出屏幕边界
+                screen_width = self.winfo_screenwidth()
+                screen_height = self.winfo_screenheight()
+
+                if x < 0:
+                    x = 0
+                if y < 0:
+                    y = 0
+                if x + dialog_width > screen_width:
+                    x = screen_width - dialog_width
+                if y + dialog_height > screen_height:
+                    y = screen_height - dialog_height
+
+                # 设置对话框位置
+                self.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
+
+            def show(self):
+                """显示对话框并居中"""
+                # 在对话框显示后立即居中
+                self.after(100, self._center_dialog)
+                self.wait_window()
+                return self.result
 
         # 创建并显示对话框
         dialog = VersionDescriptionDialog(self.root, "版本描述")

@@ -31,7 +31,44 @@ class VersionCompareDialog:
         self.dialog.transient(parent)
         self.dialog.grab_set()
 
+        # 居中显示对话框
+        self._center_dialog()
+
         self._create_widgets()
+
+    def _center_dialog(self):
+        """将对话框居中显示在父窗口上"""
+        self.dialog.update_idletasks()
+
+        # 获取对话框的尺寸
+        dialog_width = self.dialog.winfo_width()
+        dialog_height = self.dialog.winfo_height()
+
+        # 获取父窗口的位置和尺寸
+        parent_x = self.parent.winfo_rootx()
+        parent_y = self.parent.winfo_rooty()
+        parent_width = self.parent.winfo_width()
+        parent_height = self.parent.winfo_height()
+
+        # 计算居中位置
+        x = parent_x + (parent_width // 2) - (dialog_width // 2)
+        y = parent_y + (parent_height // 2) - (dialog_height // 2)
+
+        # 确保对话框不会超出屏幕边界
+        screen_width = self.dialog.winfo_screenwidth()
+        screen_height = self.dialog.winfo_screenheight()
+
+        if x < 0:
+            x = 0
+        if y < 0:
+            y = 0
+        if x + dialog_width > screen_width:
+            x = screen_width - dialog_width
+        if y + dialog_height > screen_height:
+            y = screen_height - dialog_height
+
+        # 设置对话框位置
+        self.dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
 
     def _create_widgets(self):
         """创建界面组件"""
@@ -267,7 +304,44 @@ class VersionDetailsDialog:
         self.dialog.transient(parent)
         self.dialog.grab_set()
 
+        # 居中显示对话框
+        self._center_dialog()
+
         self._create_widgets()
+
+    def _center_dialog(self):
+        """将对话框居中显示在父窗口上"""
+        self.dialog.update_idletasks()
+
+        # 获取对话框的尺寸
+        dialog_width = self.dialog.winfo_width()
+        dialog_height = self.dialog.winfo_height()
+
+        # 获取父窗口的位置和尺寸
+        parent_x = self.parent.winfo_rootx()
+        parent_y = self.parent.winfo_rooty()
+        parent_width = self.parent.winfo_width()
+        parent_height = self.parent.winfo_height()
+
+        # 计算居中位置
+        x = parent_x + (parent_width // 2) - (dialog_width // 2)
+        y = parent_y + (parent_height // 2) - (dialog_height // 2)
+
+        # 确保对话框不会超出屏幕边界
+        screen_width = self.dialog.winfo_screenwidth()
+        screen_height = self.dialog.winfo_screenheight()
+
+        if x < 0:
+            x = 0
+        if y < 0:
+            y = 0
+        if x + dialog_width > screen_width:
+            x = screen_width - dialog_width
+        if y + dialog_height > screen_height:
+            y = screen_height - dialog_height
+
+        # 设置对话框位置
+        self.dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
 
     def _create_widgets(self):
         """创建界面组件"""
