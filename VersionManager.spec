@@ -6,7 +6,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('images', 'images')],
     hiddenimports=[
         'sqlite3',
         'tkinter',
@@ -15,6 +15,9 @@ a = Analysis(
         'tkinter.filedialog',
         'tkinter.scrolledtext',
         'tkinter.simpledialog',
+        'PIL',
+        'PIL.Image',
+        'PIL.ImageTk',
     ],
     hookspath=[],
     hooksconfig={},

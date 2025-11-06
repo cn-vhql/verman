@@ -13,6 +13,8 @@ from version_manager import VersionManager
 from dialogs import VersionCompareDialog, VersionDetailsDialog
 from config import config_manager
 from logger import operation_logger
+from license_manager import LicenseManager
+from vip_dialog import VIPUpgradeDialog, VIPStatusDialog
 
 
 class VersionManagerGUI:
@@ -21,12 +23,15 @@ class VersionManagerGUI:
     def __init__(self):
         """初始化GUI"""
         self.root = tk.Tk()
-        self.root.title("本地文件版本管理工具")
+        self.root.title("VerMan - 版本管理工具")
         self.root.geometry("900x600")
 
         # 项目管理器
         self.project_manager = ProjectManager()
         self.version_manager: Optional[VersionManager] = None
+
+        # 许可证管理器
+        self.license_manager = LicenseManager()
 
         # 创建界面
         self._create_menu()
@@ -71,6 +76,29 @@ class VersionManagerGUI:
         version_menu.add_separator()
         version_menu.add_command(label="导出版本", command=self._export_version)
         version_menu.add_command(label="比较版本", command=self._compare_versions)
+
+        # VIP菜单
+        vip_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="VIP", menu=vip_menu)
+
+        # 更新VIP菜单标题和状态
+        plan_type = self.license_manager.get_plan_type()
+        print(f"[DEBUG] 创建VIP菜单 - Plan type: {plan_type}")
+        print(f"[DEBUG] 创建VIP菜单 - Is VIP user: {self.license_manager.is_vip_user()}")
+
+        if plan_type == 'vip':
+            vip_menu.add_command(label=f"💎 VIP版 - {self.license_manager.get_license_info()['user_email']}", state=tk.DISABLED)
+        else:
+            vip_menu.add_command(label="🆓 免费版", state=tk.DISABLED)
+
+        vip_menu.add_separator()
+        vip_menu.add_command(label="查看VIP状态", command=self._show_vip_status)
+
+        # 根据VIP状态决定升级菜单项是否可用
+        if self.license_manager.is_vip_user():
+            vip_menu.add_command(label="升级VIP", state=tk.DISABLED)
+        else:
+            vip_menu.add_command(label="升级VIP", command=self._upgrade_to_vip)
 
         # 设置菜单
         settings_menu = tk.Menu(menubar, tearoff=0)
@@ -468,6 +496,21 @@ class VersionManagerGUI:
         if not self.version_manager:
             return
 
+        # 检查VIP权限
+        if not self.license_manager.can_use_feature("can_export_version"):
+            # 显示VIP升级对话框
+            vip_dialog = VIPUpgradeDialog(self.root, "版本导出功能")
+            result = vip_dialog.show()
+            if result:  # 用户成功激活VIP
+                self._handle_vip_activation_success("版本导出功能")
+                # 重新执行功能
+                self._execute_export_version()
+            return
+
+        self._execute_export_version()
+
+    def _execute_export_version(self):
+        """执行版本导出"""
         # 获取选中的版本
         selected_items = self.versions_tree.selection()
         if not selected_items:
@@ -511,6 +554,21 @@ class VersionManagerGUI:
         if not self.version_manager:
             return
 
+        # 检查VIP权限
+        if not self.license_manager.can_use_feature("can_compare_versions"):
+            # 显示VIP升级对话框
+            vip_dialog = VIPUpgradeDialog(self.root, "版本对比功能")
+            result = vip_dialog.show()
+            if result:  # 用户成功激活VIP
+                self._handle_vip_activation_success("版本对比功能")
+                # 重新执行功能
+                self._execute_compare_versions()
+            return
+
+        self._execute_compare_versions()
+
+    def _execute_compare_versions(self):
+        """执行版本对比"""
         if len(self.all_versions) < 2:
             messagebox.showinfo("提示", "需要至少两个版本才能进行比较")
             return
@@ -531,6 +589,15 @@ class VersionManagerGUI:
         if not self.version_manager:
             return
 
+        # 检查基础权限（查看版本详情）
+        if not self.license_manager.can_use_feature("can_view_version_info"):
+            messagebox.showerror("错误", "无法查看版本详情")
+            return
+
+        self._execute_version_details()
+
+    def _execute_version_details(self):
+        """执行版本详情查看"""
         # 获取选中的版本
         selected_items = self.versions_tree.selection()
         if not selected_items:
@@ -552,7 +619,7 @@ class VersionManagerGUI:
             # 获取版本详细信息
             version_details = self.version_manager.get_version_details(version_id)
             if version_details:
-                dialog = VersionDetailsDialog(self.root, version_details)
+                dialog = VersionDetailsDialog(self.root, version_details, self.license_manager)
                 dialog.show()
         except Exception as e:
             messagebox.showerror("错误", f"获取版本详情失败: {e}")
@@ -588,31 +655,12 @@ class VersionManagerGUI:
         if not self.version_manager:
             return
 
-        # 获取选中的版本
-        selected_items = self.versions_tree.selection()
-        if not selected_items:
+        # 检查基础权限（查看版本信息）
+        if not self.license_manager.can_use_feature("can_view_version_info"):
+            messagebox.showerror("错误", "无法查看版本详情")
             return
 
-        # 获取版本信息
-        selected_item = selected_items[0]
-        version_number = self.versions_tree.item(selected_item)['values'][0]
-        version_id = None
-        for version in self.all_versions:
-            if version['version_number'] == version_number:
-                version_id = version['id']
-                break
-
-        if version_id is None:
-            return
-
-        try:
-            # 获取版本详细信息
-            version_details = self.version_manager.get_version_details(version_id)
-            if version_details:
-                dialog = VersionDetailsDialog(self.root, version_details)
-                dialog.show()
-        except Exception as e:
-            messagebox.showerror("错误", f"获取版本详情失败: {e}")
+        self._execute_version_details()
 
     def _update_recent_projects_menu(self):
         """更新最近项目菜单"""
@@ -736,11 +784,66 @@ class VersionManagerGUI:
 
     def _show_about(self):
         """显示关于对话框"""
-        about_text = "本地文件版本管理工具\n\n"
-        about_text += "一款轻量级的本地文件版本管理工具\n"
+        # 获取VIP状态信息
+        vip_status = "🆓 免费版" if not self.license_manager.is_vip_user() else "💎 VIP版"
+
+        about_text = "VerMan - 版本管理工具\n\n"
+        about_text += "VerMan是一款轻量级的本地文件版本管理工具\n"
         about_text += "支持文件变更监控、版本记录和回滚\n\n"
-        about_text += "版本: 1.0.0"
+        about_text += f"版本: 1.0.0 | {vip_status}\n"
+
+        if self.license_manager.is_vip_user():
+            license_info = self.license_manager.get_license_info()
+            about_text += f"VIP用户: {license_info.get('user_email', '')}\n"
+
         messagebox.showinfo("关于", about_text)
+
+    def _show_vip_status(self):
+        """显示VIP状态"""
+        dialog = VIPStatusDialog(self.root)
+        dialog.show()
+
+    def _upgrade_to_vip(self):
+        """升级到VIP"""
+        vip_dialog = VIPUpgradeDialog(self.root, "所有高级功能")
+        result = vip_dialog.show()
+
+        if result:  # 用户成功激活VIP
+            messagebox.showinfo("🎉 恭喜升级",
+                             "恭喜您成功升级到VIP版！\n\n"
+                             "现在您可以享受所有高级功能：\n"
+                             "• 查看历史版本文件内容\n"
+                             "• 版本对比功能\n"
+                             "• 版本导出功能\n\n"
+                             "感谢您的支持！")
+
+            # 重新创建许可证管理器以更新权限状态
+            self.license_manager = LicenseManager()
+            # 更新VIP菜单
+            self._update_vip_menu()
+
+    def _update_vip_menu(self):
+        """更新VIP菜单显示"""
+        # 强制更新菜单 - 先清除现有菜单再重新创建
+        menubar = tk.Menu(self.root)
+        self.root.config(menu=menubar)
+        # 重新创建所有菜单
+        self._create_menu()
+
+    def _handle_vip_activation_success(self, feature_name: str = "所有高级功能"):
+        """处理VIP激活成功后的更新"""
+        messagebox.showinfo("感谢支持", f"VIP激活成功！现在可以使用{feature_name}了。")
+        # 重新创建许可证管理器以更新权限状态
+        self.license_manager = LicenseManager()
+
+        # 调试信息
+        print(f"[DEBUG] VIP激活成功后状态:")
+        print(f"  Plan type: {self.license_manager.get_plan_type()}")
+        print(f"  Is VIP user: {self.license_manager.is_vip_user()}")
+        print(f"  Can view file content: {self.license_manager.can_use_feature('can_view_file_content')}")
+
+        # 更新VIP菜单
+        self._update_vip_menu()
 
     def _show_operation_logs(self):
         """显示操作日志对话框"""

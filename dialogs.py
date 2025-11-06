@@ -291,16 +291,18 @@ class VersionCompareDialog:
 class VersionDetailsDialog:
     """版本详情对话框"""
 
-    def __init__(self, parent, version_info: Dict):
+    def __init__(self, parent, version_info: Dict, license_manager=None):
         """
         初始化版本详情对话框
 
         Args:
             parent: 父窗口
             version_info: 版本信息
+            license_manager: 许可证管理器（用于VIP权限检查）
         """
         self.parent = parent
         self.version_info = version_info
+        self.license_manager = license_manager
 
         self.dialog = tk.Toplevel(parent)
         self.dialog.title(f"版本详情 - {version_info['version_number']}")
@@ -431,6 +433,17 @@ class VersionDetailsDialog:
 
     def _on_file_double_click(self, event):
         """文件列表双击事件"""
+        # 检查VIP权限（打开文件内容是VIP功能）
+        if self.license_manager and not self.license_manager.can_use_feature('can_open_file_content'):
+            # 导入VIP对话框（避免循环导入）
+            try:
+                from vip_dialog import VIPUpgradeDialog
+                vip_dialog = VIPUpgradeDialog(self.parent, "打开历史文件内容")
+                vip_dialog.show()
+            except ImportError:
+                messagebox.showinfo("提示", "打开历史文件内容需要升级VIP版本")
+            return
+
         # 获取选中的文件
         selected_items = self.files_tree.selection()
         if not selected_items:

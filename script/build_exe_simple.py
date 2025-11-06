@@ -57,6 +57,20 @@ def build_exe():
         print(f"错误: 缺少必要文件: {', '.join(missing_files)}")
         return False
 
+    # 检查images目录（VIP二维码图片）
+    images_dir = Path("images")
+    if images_dir.exists():
+        print(f"✓ 找到images目录: {images_dir}")
+        required_images = ["alipay_qr.png", "wechat_qr.png"]
+        for img in required_images:
+            img_path = images_dir / img
+            if img_path.exists():
+                print(f"  ✓ {img}")
+            else:
+                print(f"  ⚠ {img} 不存在")
+    else:
+        print(f"⚠ images目录不存在，VIP二维码将显示为文字")
+
     # 清理之前的构建
     print("\n1. 清理之前的构建...")
     dirs_to_clean = ["build", "dist", "__pycache__", "VersionManager.spec"]
@@ -71,7 +85,9 @@ def build_exe():
                 print(f"  - 删除文件: {item}")
 
     # 安装PyInstaller（如果需要）
-    print("\n2. 检查PyInstaller...")
+    print("\n2. 检查依赖...")
+
+    # 检查PyInstaller
     try:
         import PyInstaller
         print(f"  - PyInstaller已安装: {PyInstaller.__version__}")
@@ -80,8 +96,25 @@ def build_exe():
         if not run_command("pip install pyinstaller", "安装PyInstaller"):
             return False
 
+    # 检查PIL（Pillow）- VIP功能需要
+    try:
+        from PIL import Image
+        print("  - PIL已安装")
+    except ImportError:
+        print("  - 正在安装PIL...")
+        if not run_command("pip install Pillow", "安装PIL"):
+            print("  - 警告: PIL安装失败，VIP二维码将显示为文字")
+
     # 创建spec文件
     print("\n3. 创建打包配置...")
+
+    # 检查images目录并添加到datas
+    datas = []
+    images_dir = Path("images")
+    if images_dir.exists():
+        datas.append(('images', 'images'))
+        print("  - 添加images目录到打包资源")
+
     spec_content = f'''# -*- mode: python ; coding: utf-8 -*-
 
 block_cipher = None
@@ -90,7 +123,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas={datas},
     hiddenimports=[
         'sqlite3',
         'tkinter',
@@ -99,6 +132,9 @@ a = Analysis(
         'tkinter.filedialog',
         'tkinter.scrolledtext',
         'tkinter.simpledialog',
+        'PIL',
+        'PIL.Image',
+        'PIL.ImageTk',
     ],
     hookspath=[],
     hooksconfig={{}},

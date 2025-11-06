@@ -1,0 +1,45 @@
+[
+  {
+    "activation_code": "VMN-VIP-466C-1FABA996",
+    "user_email": "record_test@example.com",
+    "plan_type": "vip",
+    "generated_at": "2025-11-06T18:52:43.188671",
+    "status": "unused",
+    "notes": "Record test",
+    "machine_id": null,
+    "activated_at": null,
+    "activated_by": null
+  },
+  {
+    "activation_code": "VMN-VIP-A75F-78AC1D77",
+    "user_email": "yl_zhangqiang@foxmail.com",
+    "plan_type": "vip",
+    "generated_at": "2025-11-06T19:29:43.420359",
+    "status": "unused",
+    "notes": "1",
+    "machine_id": null,
+    "activated_at": null,
+    "activated_by": null
+  },
+  {
+    "activation_code": "VMN-VIP-251106-A0FD90-6A571756",
+    "plan_type": "vip",
+    "generated_at": "2025-11-06T20:00:13.744286",
+    "status": "unused",
+    "notes": "",
+    "seed": "A0FD90",
+    "date_suffix": "251106",
+    "user_id": "default"
+  },
+  {
+    "activation_code": "VMN-VIP-3E65-78AC1D77",
+    "user_email": "yl_zhangqiang@foxmail.com",
+    "plan_type": "vip",
+    "generated_at": "2025-11-06T20:06:42.335314",
+    "status": "unused",
+    "notes": "01",
+    "random_part": "3E65",
+    "user_hash": "78AC1D77",
+    "user_id": "yl_zhangqiang"
+  }
+]
