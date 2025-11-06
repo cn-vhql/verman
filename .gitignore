@@ -11,3 +11,6 @@ tests
 .svmini
 CLAUDE.md
 doc/fee.md
+dist/.verman.db
+dist/.vermanignore
+.gitignore
