@@ -2,7 +2,6 @@
 __pycache__/
 *.py[oc]
 build/
-dist/
 wheels/
 *.egg-info
 
@@ -11,4 +10,3 @@ wheels/
 tests
 .svmini
 CLAUDE.md
-script
