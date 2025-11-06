@@ -284,7 +284,7 @@ class VersionManagerGUI:
 
         # 打开项目
         if self.project_manager.open_project(workspace_path):
-            messagebox.showinfo("成功", "项目打开成功")
+            # messagebox.showinfo("成功", "项目打开成功")
             # 添加到最近项目
             config_manager.add_recent_project(workspace_path)
             self._update_recent_projects_menu()
@@ -355,7 +355,7 @@ class VersionManagerGUI:
             # 创建版本
             version_number = self.version_manager.create_version(description.strip())
             if version_number:
-                messagebox.showinfo("成功", f"版本 {version_number} 创建成功")
+                # messagebox.showinfo("成功", f"版本 {version_number} 创建成功")
                 self._refresh_data()
             else:
                 messagebox.showerror("错误", "版本创建失败")
