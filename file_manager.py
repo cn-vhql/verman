@@ -9,6 +9,22 @@ from datetime import datetime
 from typing import Dict, List, Set, Tuple
 import fnmatch
 
+# 简化的日志系统
+import logging
+
+class _SimpleLogger:
+    """简化的日志记录器"""
+    def __init__(self):
+        logging.basicConfig(level=logging.INFO)
+        self.logger = logging.getLogger(__name__)
+
+    def info(self, msg): self.logger.info(msg)
+    def error(self, msg): self.logger.error(msg)
+    def warning(self, msg): self.logger.warning(msg)
+    def debug(self, msg): self.logger.debug(msg)
+
+_logger = _SimpleLogger()
+
 
 class FileManager:
     """文件管理器，负责所有文件相关操作"""
@@ -43,7 +59,7 @@ class FileManager:
 
     def _read_file_content(self, file_path: str) -> bytes:
         """
-        读取文件二进制内容
+        读取文件二进制内容，支持大文件处理
 
         Args:
             file_path: 文件绝对路径
@@ -52,9 +68,33 @@ class FileManager:
             文件二进制内容
         """
         try:
-            with open(file_path, "rb") as f:
-                return f.read()
-        except (IOError, OSError):
+            # 检查文件大小，避免处理过大的文件
+            file_size = os.path.getsize(file_path)
+            max_size = 50 * 1024 * 1024  # 50MB限制
+
+            if file_size > max_size:
+                raise ValueError(f"文件过大 ({file_size // 1024 // 1024}MB)，超过限制 ({max_size // 1024 // 1024}MB)")
+
+            # 对于中等大小的文件，直接读取
+            if file_size < 10 * 1024 * 1024:  # 10MB以下
+                with open(file_path, "rb") as f:
+                    return f.read()
+            else:
+                # 对于大文件，分块读取
+                content = bytearray()
+                with open(file_path, "rb") as f:
+                    while True:
+                        chunk = f.read(4096)
+                        if not chunk:
+                            break
+                        content.extend(chunk)
+                        # 检查内存使用
+                        if len(content) > max_size:
+                            raise ValueError(f"文件内容过大，超过内存限制")
+                return bytes(content)
+
+        except (IOError, OSError, ValueError) as e:
+            _logger.error(f"读取文件失败 {file_path}: {e}")
             return b""
 
     def scan_workspace(self, ignore_patterns: List[str] = None) -> Dict[str, str]:
@@ -82,23 +122,68 @@ class FileManager:
         ]
         all_ignore_patterns = default_ignore + ignore_patterns
 
+        # 安全检查：确保工作区路径存在且可访问
+        if not os.path.exists(self.workspace_path):
+            raise FileNotFoundError(f"工作区路径不存在: {self.workspace_path}")
+
+        if not os.access(self.workspace_path, os.R_OK):
+            raise PermissionError(f"工作区路径不可读: {self.workspace_path}")
+
+        # 检查文件数量限制
+        file_count = 0
+        max_files = 10000  # 最大文件数限制
+
         for root, dirs, files in os.walk(self.workspace_path):
+            # 安全检查：防止路径遍历攻击
+            try:
+                relative_root = os.path.relpath(root, self.workspace_path)
+                if relative_root.startswith('..'):
+                    continue  # 跳过工作区外的目录
+            except ValueError:
+                continue  # 路径解析错误，跳过
+
             # 过滤忽略的目录
             dirs[:] = [d for d in dirs if not self._should_ignore(d, all_ignore_patterns)]
 
             for file in files:
+                if file_count >= max_files:
+                    _logger.warning(f"文件数量超过限制 ({max_files})，停止扫描")
+                    return file_hashes
+
                 if self._should_ignore(file, all_ignore_patterns):
                     continue
 
                 file_path = os.path.join(root, file)
-                relative_path = os.path.relpath(file_path, self.workspace_path)
+
+                # 安全检查：文件路径
+                try:
+                    relative_path = os.path.relpath(file_path, self.workspace_path)
+                    if (relative_path.startswith('..') or
+                        '..' in relative_path.split(os.sep) or
+                        os.path.isabs(relative_path)):
+                        continue  # 跳过不安全的路径
+                except ValueError:
+                    continue  # 路径解析错误，跳过
 
                 try:
+                    # 检查文件访问权限
+                    if not os.access(file_path, os.R_OK):
+                        continue  # 跳过无权限的文件
+
+                    # 检查文件大小
+                    file_size = os.path.getsize(file_path)
+                    if file_size > 100 * 1024 * 1024:  # 100MB限制
+                        _logger.warning(f"跳过过大文件 {relative_path} ({file_size // 1024 // 1024}MB)")
+                        continue
+
                     file_hash = self._calculate_file_hash(file_path)
                     if file_hash:  # 只有成功读取的文件才添加到结果中
                         file_hashes[relative_path] = file_hash
-                except Exception:
-                    # 跳过无法读取的文件
+                        file_count += 1
+
+                except (OSError, IOError, ValueError) as e:
+                    # 跳过有问题的文件
+                    _logger.warning(f"跳过文件 {relative_path}: {e}")
                     continue
 
         return file_hashes
@@ -166,9 +251,11 @@ class FileManager:
         for file_path in sorted(deleted_files):
             if file_path.startswith('.verman'):  # 跳过版本管理相关文件
                 continue
+            # 保留删除文件的原始哈希值，用于后续版本比较
+            original_hash = previous_files.get(file_path, '')
             changes.append({
                 'relative_path': file_path,
-                'file_hash': '',
+                'file_hash': original_hash,
                 'file_status': 'delete'
             })
 
@@ -242,21 +329,46 @@ class FileManager:
             return True
 
         except Exception as e:
-            print(f"文件恢复失败: {e}")
+            _logger.error(f"文件恢复失败: {e}")
             return False
 
     def _backup_current_state(self):
-        """备份当前状态（简单实现，可以扩展）"""
+        """备份当前状态到备份目录"""
         backup_dir = os.path.join(self.workspace_path, '.verman_backup')
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         backup_path = os.path.join(backup_dir, f'backup_{timestamp}')
 
         try:
             os.makedirs(backup_path, exist_ok=True)
-            # 这里可以实现更完整的备份逻辑
-            print(f"当前状态已备份到: {backup_path}")
+
+            # 扫描当前工作区文件
+            current_files = self.scan_workspace()
+            backed_up_count = 0
+
+            # 复制所有文件到备份目录
+            for relative_path in current_files:
+                source_path = os.path.join(self.workspace_path, relative_path)
+                target_path = os.path.join(backup_path, relative_path)
+
+                # 确保目标目录存在
+                target_dir = os.path.dirname(target_path)
+                if target_dir:
+                    os.makedirs(target_dir, exist_ok=True)
+
+                try:
+                    # 复制文件
+                    import shutil
+                    shutil.copy2(source_path, target_path)
+                    backed_up_count += 1
+                except Exception as copy_error:
+                    _logger.error(f"备份文件失败 {relative_path}: {copy_error}")
+                    continue
+
+            _logger.info(f"当前状态已备份到: {backup_path}")
+            _logger.info(f"共备份 {backed_up_count} 个文件")
+
         except Exception as e:
-            print(f"备份失败: {e}")
+            _logger.error(f"备份失败: {e}")
 
     def export_version_files(self, version_files: List[Dict], export_path: str) -> bool:
         """
@@ -288,5 +400,5 @@ class FileManager:
             return True
 
         except Exception as e:
-            print(f"导出失败: {e}")
+            _logger.error(f"导出失败: {e}")
             return False

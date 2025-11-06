@@ -15,7 +15,11 @@
       "Bash(find:*)",
       "Bash(del test.py fix_test.py simple_test.py debug_test.py gui_debug_test.py exact_scenario_test.py gui_state_test.py performance_test.py)",
       "Bash(C:\\Python311\\python.exe -m pip install:*)",
-      "Bash(build.bat)"
+      "Bash(build.bat)",
+      "Bash(del:*)",
+      "Bash(powershell:*)",
+      "Bash(cmd /c \"cd /d F:\\pythonproject\\verman && del *fixes*.py\")",
+      "Bash(cmd:*)"
     ],
     "deny": [],
     "ask": []

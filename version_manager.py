@@ -7,6 +7,22 @@ from typing import List, Dict, Optional, Tuple
 from database import DatabaseManager
 from file_manager import FileManager
 
+# 简化的日志系统
+import logging
+
+class _SimpleLogger:
+    """简化的日志记录器"""
+    def __init__(self):
+        logging.basicConfig(level=logging.INFO)
+        self.logger = logging.getLogger(__name__)
+
+    def info(self, msg): self.logger.info(msg)
+    def error(self, msg): self.logger.error(msg)
+    def warning(self, msg): self.logger.warning(msg)
+    def debug(self, msg): self.logger.debug(msg)
+
+_logger = _SimpleLogger()
+
 
 class VersionManager:
     """版本管理器，负责版本的核心操作"""
@@ -50,7 +66,7 @@ class VersionManager:
             previous_files = {
                 file['relative_path']: file['file_hash']
                 for file in latest_files
-                if file['file_status'] not in ['delete']
+                if file['file_status'] in ['add', 'modify', 'unmodified']  # 包含所有实际存在的文件
             }
 
             # 4. 检测变更（基于哈希值比对）
@@ -58,7 +74,7 @@ class VersionManager:
             return changes
 
         except Exception as e:
-            print(f"获取变更失败: {e}")
+            _logger.error(f"获取变更失败: {e}")
             return []
 
     def create_version(self, description: str) -> Optional[str]:
@@ -100,7 +116,7 @@ class VersionManager:
             return version_number
 
         except Exception as e:
-            print(f"创建版本失败: {e}")
+            _logger.error(f"创建版本失败: {e}")
             return None
 
     def rollback_to_version(self, version_id: int, backup_current: bool = True) -> bool:
@@ -118,17 +134,17 @@ class VersionManager:
             # 获取目标版本的文件
             version_files = self.db_manager.get_version_files(version_id)
             if not version_files:
-                print("版本文件不存在")
+                _logger.error("版本文件不存在")
                 return False
 
             # 恢复文件
             success = self.file_manager.restore_files(version_files, backup_current)
             if success:
-                print(f"成功回滚到版本 {version_id}")
+                _logger.info(f"成功回滚到版本 {version_id}")
             return success
 
         except Exception as e:
-            print(f"回滚失败: {e}")
+            _logger.error(f"回滚失败: {e}")
             return False
 
     def get_all_versions(self) -> List[Dict]:
@@ -173,12 +189,15 @@ class VersionManager:
             add_count = len([f for f in files if f['file_status'] == 'add'])
             modify_count = len([f for f in files if f['file_status'] == 'modify'])
             delete_count = len([f for f in files if f['file_status'] == 'delete'])
+            unmodified_count = len([f for f in files if f['file_status'] == 'unmodified'])
 
             version_info['files'] = files
             version_info['statistics'] = {
                 'add_count': add_count,
                 'modify_count': modify_count,
-                'delete_count': delete_count
+                'delete_count': delete_count,
+                'unmodified_count': unmodified_count,
+                'total_count': len(files)
             }
 
             return version_info
@@ -203,13 +222,19 @@ class VersionManager:
             files1 = self.db_manager.get_version_files(version_id1)
             files2 = self.db_manager.get_version_files(version_id2)
 
-            # 转换为字典方便比较
-            dict1 = {f['relative_path']: f for f in files1}
-            dict2 = {f['relative_path']: f for f in files2}
+            # 转换为字典方便比较，排除删除状态进行路径比较
+            dict1 = {f['relative_path']: f for f in files1 if f['file_status'] != 'delete'}
+            dict2 = {f['relative_path']: f for f in files2 if f['file_status'] != 'delete'}
+
+            # 获取删除文件
+            deleted_files1 = {f['relative_path']: f for f in files1 if f['file_status'] == 'delete'}
+            deleted_files2 = {f['relative_path']: f for f in files2 if f['file_status'] == 'delete'}
 
             # 计算差异
             paths1 = set(dict1.keys())
             paths2 = set(dict2.keys())
+            deleted_paths1 = set(deleted_files1.keys())
+            deleted_paths2 = set(deleted_files2.keys())
 
             only_in_v1 = paths1 - paths2
             only_in_v2 = paths2 - paths1
@@ -221,19 +246,35 @@ class VersionManager:
                 'different': []
             }
 
-            # 检查共同文件的差异
+            # 检查共同文件的差异（内容变化）
             for path in common:
-                if dict1[path]['file_hash'] != dict2[path]['file_hash']:
+                file1 = dict1[path]
+                file2 = dict2[path]
+
+                # 检查哈希值或状态是否变化
+                if (file1['file_hash'] != file2['file_hash'] or
+                    file1['file_status'] != file2['file_status']):
                     differences['different'].append({
                         'relative_path': path,
-                        'file_in_v1': dict1[path],
-                        'file_in_v2': dict2[path]
+                        'file_in_v1': file1,
+                        'file_in_v2': file2
                     })
+
+            # 检查删除状态的变化
+            # 在v1中删除但在v2中存在的文件
+            for path in deleted_paths1:
+                if path in dict2:  # v2中存在
+                    differences['only_in_second'].append(dict2[path])
+
+            # 在v2中删除但在v1中存在的文件
+            for path in deleted_paths2:
+                if path in dict1:  # v1中存在
+                    differences['only_in_first'].append(dict1[path])
 
             return differences
 
         except Exception as e:
-            print(f"版本比较失败: {e}")
+            _logger.error(f"版本比较失败: {e}")
             return {}
 
     def export_version(self, version_id: int, export_path: str) -> bool:
@@ -353,14 +394,29 @@ class VersionManager:
         import os
         version_files = []
 
-        # 创建变更文件的映射，便于查找
+        # 创建变更文件的映射，便于查找，删除文件优先级最高
         change_map = {
             change['relative_path']: change['file_status']
             for change in changes
         }
 
-        # 1. 添加所有当前存在的文件
+        # 1. 先处理被删除的文件（优先级最高，避免重复）
+        processed_files = set()
+        for change in changes:
+            if change['file_status'] == 'delete':
+                version_files.append({
+                    'relative_path': change['relative_path'],
+                    'file_hash': change['file_hash'],
+                    'file_status': 'delete',
+                    'file_content': None  # 删除的文件不存储内容
+                })
+                processed_files.add(change['relative_path'])
+
+        # 2. 处理当前存在的文件（排除已标记为删除的文件）
         for file_path, file_hash in current_files.items():
+            if file_path in processed_files:
+                continue  # 跳过已处理的删除文件
+
             status = change_map.get(file_path, 'unmodified')  # 未变更的文件
 
             # 只有新增和修改的文件需要存储内容
@@ -375,15 +431,5 @@ class VersionManager:
                 'file_status': status,
                 'file_content': file_content
             })
-
-        # 2. 添加被删除的文件（从变更列表中获取）
-        for change in changes:
-            if change['file_status'] == 'delete':
-                version_files.append({
-                    'relative_path': change['relative_path'],
-                    'file_hash': change['file_hash'],
-                    'file_status': 'delete',
-                    'file_content': None  # 删除的文件不存储内容
-                })
 
         return version_files

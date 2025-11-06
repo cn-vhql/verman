@@ -99,9 +99,9 @@ class VersionCompareDialog:
 
     def _create_file_tree(self, parent):
         """创建文件列表树"""
-        tree = ttk.Treeview(parent, columns=('文件路径',), show='headings')
-        tree.heading('文件路径', text='文件路径')
-        tree.column('文件路径', width=700, anchor=tk.W)
+        tree = ttk.Treeview(parent, columns=('文件信息',), show='headings')
+        tree.heading('文件信息', text='文件信息')
+        tree.column('文件信息', width=750, anchor=tk.W)
 
         scrollbar = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=tree.yview)
         tree.configure(yscrollcommand=scrollbar.set)
@@ -165,9 +165,17 @@ class VersionCompareDialog:
                 status = '新增'
             elif status == 'MODIFY':
                 status = '修改'
+            elif status == 'UNMODIFIED':
+                status = '未变更'
             elif status == 'DELETE':
                 status = '删除'
-            self.only_v1_tree.insert('', tk.END, values=(f"{status} - {file_info['relative_path']}",))
+
+            # 添加哈希值信息（用于调试）
+            file_hash = file_info.get('file_hash', '')
+            hash_info = f" [{file_hash[:8]}]" if file_hash else ""
+
+            display_text = f"{status} - {file_info['relative_path']}{hash_info}"
+            self.only_v1_tree.insert('', tk.END, values=(display_text,))
 
         # 显示仅在版本2中的文件
         for file_info in differences.get('only_in_second', []):
@@ -176,18 +184,67 @@ class VersionCompareDialog:
                 status = '新增'
             elif status == 'MODIFY':
                 status = '修改'
+            elif status == 'UNMODIFIED':
+                status = '未变更'
             elif status == 'DELETE':
                 status = '删除'
-            self.only_v2_tree.insert('', tk.END, values=(f"{status} - {file_info['relative_path']}",))
 
-        # 显示不同的文件
+            # 添加哈希值信息（用于调试）
+            file_hash = file_info.get('file_hash', '')
+            hash_info = f" [{file_hash[:8]}]" if file_hash else ""
+
+            display_text = f"{status} - {file_info['relative_path']}{hash_info}"
+            self.only_v2_tree.insert('', tk.END, values=(display_text,))
+
+        # 显示不同的文件（内容或状态变化）
         for diff_info in differences.get('different', []):
-            self.different_tree.insert('', tk.END, values=(diff_info['relative_path'],))
+            file_v1 = diff_info.get('file_in_v1', {})
+            file_v2 = diff_info.get('file_in_v2', {})
+
+            # 构建状态变化描述
+            status_v1 = file_v1.get('file_status', 'unknown')
+            status_v2 = file_v2.get('file_status', 'unknown')
+
+            hash_v1 = file_v1.get('file_hash', '')[:8] if file_v1.get('file_hash') else ''
+            hash_v2 = file_v2.get('file_hash', '')[:8] if file_v2.get('file_hash') else ''
+
+            # 状态变化描述
+            if status_v1 != status_v2:
+                status_change = f"{status_v1}→{status_v2}"
+            else:
+                status_change = "内容变更"
+
+            display_text = f"{diff_info['relative_path']} ({status_change}) [{hash_v1}→{hash_v2}]"
+            self.different_tree.insert('', tk.END, values=(display_text,))
 
     def show(self):
         """显示对话框并等待结果"""
-        self.dialog.wait_window()
+        try:
+            self.dialog.wait_window()
+        finally:
+            self._cleanup()
         return self.result
+
+    def _cleanup(self):
+        """清理对话框资源"""
+        try:
+            if hasattr(self, 'dialog') and self.dialog.winfo_exists():
+                # 清理Treeview组件
+                if hasattr(self, 'only_v1_tree'):
+                    for item in self.only_v1_tree.get_children():
+                        self.only_v1_tree.delete(item)
+                if hasattr(self, 'only_v2_tree'):
+                    for item in self.only_v2_tree.get_children():
+                        self.only_v2_tree.delete(item)
+                if hasattr(self, 'different_tree'):
+                    for item in self.different_tree.get_children():
+                        self.different_tree.delete(item)
+
+                # 销毁对话框
+                self.dialog.destroy()
+        except Exception:
+            # 忽略清理过程中的错误
+            pass
 
 
 class VersionDetailsDialog:
@@ -291,4 +348,22 @@ class VersionDetailsDialog:
 
     def show(self):
         """显示对话框"""
-        self.dialog.wait_window()
+        try:
+            self.dialog.wait_window()
+        finally:
+            self._cleanup()
+
+    def _cleanup(self):
+        """清理对话框资源"""
+        try:
+            if hasattr(self, 'dialog') and self.dialog.winfo_exists():
+                # 清理Treeview组件
+                if hasattr(self, 'files_tree'):
+                    for item in self.files_tree.get_children():
+                        self.files_tree.delete(item)
+
+                # 销毁对话框
+                self.dialog.destroy()
+        except Exception:
+            # 忽略清理过程中的错误
+            pass

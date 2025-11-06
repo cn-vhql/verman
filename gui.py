@@ -336,8 +336,8 @@ class VersionManagerGUI:
             messagebox.showinfo("提示", "没有文件变更，无需提交版本")
             return
 
-        # 输入版本描述
-        description = simpledialog.askstring("提交版本", "请输入版本描述:")
+        # 输入版本描述（使用更大的输入框）
+        description = self._show_version_description_dialog()
         if description is None:
             return
 
@@ -500,6 +500,37 @@ class VersionManagerGUI:
         else:
             self.recent_menu.add_command(label="无最近项目", state=tk.DISABLED)
 
+    def _show_version_description_dialog(self):
+        """显示版本描述输入对话框"""
+        from tkinter import simpledialog
+
+        class VersionDescriptionDialog(simpledialog.Dialog):
+            def body(self, master):
+                """创建对话框主体"""
+                ttk.Label(master, text="请输入版本描述:").grid(row=0, column=0, padx=5, pady=5)
+
+                # 使用Text组件替代Entry，支持多行输入
+                self.text_widget = tk.Text(master, height=6, width=40)
+                self.text_widget.grid(row=1, column=0, padx=5, pady=5, sticky="ew")
+
+                # 添加滚动条
+                scrollbar = ttk.Scrollbar(master, orient=tk.VERTICAL, command=self.text_widget.yview)
+                scrollbar.grid(row=1, column=1, sticky="ns")
+                self.text_widget.configure(yscrollcommand=scrollbar.set)
+
+                # 设置焦点
+                self.text_widget.focus_set()
+
+                return self.text_widget  # 初始焦点组件
+
+            def apply(self):
+                """获取用户输入"""
+                self.result = self.text_widget.get(1.0, tk.END).strip()
+
+        # 创建并显示对话框
+        dialog = VersionDescriptionDialog(self.root, "版本描述")
+        return dialog.result
+
     def _show_about(self):
         """显示关于对话框"""
         about_text = "本地文件版本管理工具\n\n"
@@ -510,4 +541,29 @@ class VersionManagerGUI:
 
     def run(self):
         """运行GUI应用"""
-        self.root.mainloop()
+        try:
+            self.root.mainloop()
+        finally:
+            self._cleanup()
+
+    def _cleanup(self):
+        """清理GUI资源"""
+        try:
+            if hasattr(self, 'root') and self.root.winfo_exists():
+                # 清理Treeview组件
+                if hasattr(self, 'changes_tree'):
+                    for item in self.changes_tree.get_children():
+                        self.changes_tree.delete(item)
+                if hasattr(self, 'versions_tree'):
+                    for item in self.versions_tree.get_children():
+                        self.versions_tree.delete(item)
+
+                # 关闭数据库连接
+                if hasattr(self, 'project_manager'):
+                    self.project_manager.close_project()
+
+                # 销毁主窗口
+                self.root.destroy()
+        except Exception:
+            # 忽略清理过程中的错误
+            pass
