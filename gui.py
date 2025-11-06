@@ -6,6 +6,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, simpledialog
 import os
+import sys
 from typing import Optional, List
 from project_manager import ProjectManager
 from version_manager import VersionManager
@@ -69,6 +70,13 @@ class VersionManagerGUI:
         version_menu.add_separator()
         version_menu.add_command(label="导出版本", command=self._export_version)
         version_menu.add_command(label="比较版本", command=self._compare_versions)
+
+        # 设置菜单
+        settings_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="设置", menu=settings_menu)
+        settings_menu.add_command(label="配置设置", command=self._show_settings)
+        settings_menu.add_separator()
+        settings_menu.add_command(label="右键菜单管理", command=self._manage_context_menu)
 
         # 帮助菜单
         help_menu = tk.Menu(menubar, tearoff=0)
@@ -537,6 +545,18 @@ class VersionManagerGUI:
         dialog = VersionDescriptionDialog(self.root, "版本描述")
         return dialog.result
 
+    def _show_settings(self):
+        """显示设置对话框"""
+        dialog = SettingsDialog(self.root, config_manager)
+        self.root.wait_window(dialog.dialog)
+        # 设置对话框关闭后刷新相关状态
+        self._update_ui_state()
+
+    def _manage_context_menu(self):
+        """管理右键菜单"""
+        dialog = ContextMenuManagerDialog(self.root)
+        self.root.wait_window(dialog.dialog)
+
     def _show_about(self):
         """显示关于对话框"""
         about_text = "本地文件版本管理工具\n\n"
@@ -573,3 +593,397 @@ class VersionManagerGUI:
         except Exception:
             # 忽略清理过程中的错误
             pass
+
+
+class SettingsDialog:
+    """设置对话框"""
+
+    def __init__(self, parent, config_manager):
+        self.config_manager = config_manager
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("设置")
+        self.dialog.geometry("550x500")
+        self.dialog.resizable(False, False)
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+
+        # 居中显示
+        self.dialog.update_idletasks()
+        x = (self.dialog.winfo_screenwidth() // 2) - (550 // 2)
+        y = (self.dialog.winfo_screenheight() // 2) - (500 // 2)
+        self.dialog.geometry(f"550x500+{x}+{y}")
+
+        self._create_widgets()
+        self._load_settings()
+
+    def _create_widgets(self):
+        """创建界面组件"""
+        # 主框架
+        main_frame = ttk.Frame(self.dialog)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+
+        # 配置选项
+        config_frame = ttk.LabelFrame(main_frame, text="配置选项")
+        config_frame.pack(fill=tk.X, pady=(0, 20))
+
+        # 自动备份
+        self.auto_backup_var = tk.BooleanVar()
+        auto_backup_check = ttk.Checkbutton(
+            config_frame,
+            text="回滚时自动备份当前状态",
+            variable=self.auto_backup_var
+        )
+        auto_backup_check.pack(anchor=tk.W, padx=10, pady=5)
+
+        # 最大版本数
+        max_versions_frame = ttk.Frame(config_frame)
+        max_versions_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        ttk.Label(max_versions_frame, text="最大保留版本数:").pack(side=tk.LEFT)
+        self.max_versions_var = tk.StringVar()
+        max_versions_spin = ttk.Spinbox(
+            max_versions_frame,
+            from_=10,
+            to=1000,
+            textvariable=self.max_versions_var,
+            width=10
+        )
+        max_versions_spin.pack(side=tk.LEFT, padx=(10, 5))
+        ttk.Label(max_versions_frame, text="(0表示不限制)").pack(side=tk.LEFT)
+
+        # 忽略文件模式
+        ignore_frame = ttk.LabelFrame(main_frame, text="忽略文件模式")
+        ignore_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 20))
+
+        ttk.Label(ignore_frame, text="每行一个文件模式 (支持 * 和 ? 通配符):").pack(anchor=tk.W, padx=10, pady=(10, 5))
+
+        # 忽略文件列表
+        list_frame = ttk.Frame(ignore_frame)
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+
+        self.ignore_listbox = tk.Listbox(list_frame, height=8)
+        ignore_scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.ignore_listbox.yview)
+        self.ignore_listbox.configure(yscrollcommand=ignore_scrollbar.set)
+
+        self.ignore_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        ignore_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # 忽略文件编辑
+        edit_frame = ttk.Frame(ignore_frame)
+        edit_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+
+        self.ignore_entry = ttk.Entry(edit_frame)
+        self.ignore_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        # 设置小按钮样式
+        small_button_style = {'padding': (8, 4)}
+
+        ttk.Button(edit_frame, text="添加", command=self._add_ignore_pattern, width=8, **small_button_style).pack(side=tk.LEFT, padx=(5, 2))
+        ttk.Button(edit_frame, text="删除", command=self._remove_ignore_pattern, width=8, **small_button_style).pack(side=tk.LEFT, padx=2)
+
+        # 按钮框架
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=(10, 0))
+
+        # 设置按钮样式和高度
+        button_style = {'padding': (10, 6)}
+
+        ttk.Button(button_frame, text="确定", command=self._save_settings, **button_style).pack(side=tk.RIGHT, padx=(5, 0))
+        ttk.Button(button_frame, text="取消", command=self.dialog.destroy, **button_style).pack(side=tk.RIGHT)
+        ttk.Button(button_frame, text="重置", command=self._reset_settings, **button_style).pack(side=tk.RIGHT, padx=(0, 5))
+
+    def _load_settings(self):
+        """加载设置"""
+        # 加载自动备份设置
+        self.auto_backup_var.set(self.config_manager.is_auto_backup_enabled())
+
+        # 加载最大版本数
+        max_versions = self.config_manager.get_max_versions_in_memory()
+        self.max_versions_var.set(str(max_versions) if max_versions > 0 else "")
+
+        # 加载忽略文件模式
+        self.ignore_listbox.delete(0, tk.END)
+        ignore_patterns = self.config_manager.get_ignore_patterns()
+        for pattern in ignore_patterns:
+            self.ignore_listbox.insert(tk.END, pattern)
+
+    def _add_ignore_pattern(self):
+        """添加忽略模式"""
+        pattern = self.ignore_entry.get().strip()
+        if pattern:
+            self.ignore_listbox.insert(tk.END, pattern)
+            self.ignore_entry.delete(0, tk.END)
+
+    def _remove_ignore_pattern(self):
+        """删除忽略模式"""
+        selection = self.ignore_listbox.curselection()
+        if selection:
+            self.ignore_listbox.delete(selection[0])
+
+    def _save_settings(self):
+        """保存设置"""
+        try:
+            # 保存自动备份设置
+            self.config_manager.set_auto_backup(self.auto_backup_var.get())
+
+            # 保存最大版本数
+            max_versions_str = self.max_versions_var.get().strip()
+            max_versions = int(max_versions_str) if max_versions_str else 0
+            self.config_manager.set_max_versions_in_memory(max_versions)
+
+            # 保存忽略文件模式
+            ignore_patterns = list(self.ignore_listbox.get(0, tk.END))
+            self.config_manager.set_ignore_patterns(ignore_patterns)
+
+            messagebox.showinfo("成功", "设置已保存")
+            self.dialog.destroy()
+        except Exception as e:
+            messagebox.showerror("错误", f"保存设置失败: {e}")
+
+    def _reset_settings(self):
+        """重置设置"""
+        if messagebox.askyesno("确认", "确定要重置所有设置到默认值吗？"):
+            self.config_manager.reset_to_defaults()
+            self._load_settings()
+            messagebox.showinfo("成功", "设置已重置")
+
+
+class ContextMenuManagerDialog:
+    """右键菜单管理对话框"""
+
+    def __init__(self, parent):
+        self.parent = parent
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("右键菜单管理")
+        self.dialog.geometry("450x350")
+        self.dialog.resizable(False, False)
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+
+        # 居中显示
+        self.dialog.update_idletasks()
+        x = (self.dialog.winfo_screenwidth() // 2) - (450 // 2)
+        y = (self.dialog.winfo_screenheight() // 2) - (350 // 2)
+        self.dialog.geometry(f"450x350+{x}+{y}")
+
+        self._create_widgets()
+        self._check_context_menu_status()
+
+    def _create_widgets(self):
+        """创建界面组件"""
+        # 主框架
+        main_frame = ttk.Frame(self.dialog)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+
+        # 状态显示
+        status_frame = ttk.LabelFrame(main_frame, text="当前状态")
+        status_frame.pack(fill=tk.X, pady=(0, 20))
+
+        self.status_label = ttk.Label(status_frame, text="正在检查右键菜单状态...")
+        self.status_label.pack(anchor=tk.W, padx=10, pady=10)
+
+        # 功能说明
+        info_frame = ttk.LabelFrame(main_frame, text="功能说明")
+        info_frame.pack(fill=tk.X, pady=(0, 20))
+
+        info_text = """右键菜单功能可以让您在文件资源管理器中快速访问VerMan：
+
+• 在文件夹上右键 → 直接打开该文件夹的版本管理
+• 在文件夹空白处右键 → 打开当前文件夹的版本管理
+• 在文件上右键 → 打开文件所在文件夹的版本管理
+
+安装后将在Windows注册表中添加相应的右键菜单项。"""
+
+        info_label = ttk.Label(info_frame, text=info_text, justify=tk.LEFT)
+        info_label.pack(anchor=tk.W, padx=10, pady=10)
+
+        # 操作按钮
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=(10, 0))
+
+        # 设置按钮样式和高度
+        button_style = {'padding': (10, 6)}
+
+        self.install_button = ttk.Button(button_frame, text="安装右键菜单", command=self._install_context_menu, **button_style)
+        self.install_button.pack(side=tk.LEFT, padx=(0, 10))
+
+        self.uninstall_button = ttk.Button(button_frame, text="卸载右键菜单", command=self._uninstall_context_menu, state=tk.DISABLED, **button_style)
+        self.uninstall_button.pack(side=tk.LEFT, padx=(0, 10))
+
+        ttk.Button(button_frame, text="刷新状态", command=self._check_context_menu_status, **button_style).pack(side=tk.LEFT)
+
+        # 关闭按钮
+        ttk.Button(button_frame, text="关闭", command=self.dialog.destroy, **button_style).pack(side=tk.RIGHT)
+
+    def _check_context_menu_status(self):
+        """检查右键菜单状态"""
+        try:
+            if sys.platform != "win32":
+                self.status_label.config(text="错误: 当前系统不支持右键菜单功能", foreground="red")
+                return
+
+            import winreg
+
+            # 检查注册表项
+            registry_keys = [
+                r"Directory\Background\shell\VerMan",
+                r"Directory\shell\VerMan",
+                r"*\shell\VerMan"
+            ]
+
+            installed_count = 0
+            for key_path in registry_keys:
+                try:
+                    with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, key_path):
+                        installed_count += 1
+                except FileNotFoundError:
+                    pass
+
+            if installed_count == 3:
+                self.status_label.config(text="✓ 右键菜单已安装 (全部3项)", foreground="green")
+                self.install_button.config(state=tk.DISABLED)
+                self.uninstall_button.config(state=tk.NORMAL)
+            elif installed_count > 0:
+                self.status_label.config(text=f"⚠ 右键菜单部分安装 ({installed_count}/3项)", foreground="orange")
+                self.install_button.config(state=tk.NORMAL)
+                self.uninstall_button.config(state=tk.NORMAL)
+            else:
+                self.status_label.config(text="✗ 右键菜单未安装", foreground="red")
+                self.install_button.config(state=tk.NORMAL)
+                self.uninstall_button.config(state=tk.DISABLED)
+
+        except Exception as e:
+            self.status_label.config(text=f"检查状态失败: {e}", foreground="red")
+
+    def _install_context_menu(self):
+        """安装右键菜单"""
+        try:
+            if sys.platform != "win32":
+                messagebox.showerror("错误", "当前系统不支持右键菜单功能")
+                return
+
+            # 查找exe文件路径
+            exe_path = self._find_exe_path()
+            if not exe_path:
+                messagebox.showerror("错误", "未找到VersionManager.exe文件\n请先运行 script/build_exe_simple.py 打包程序")
+                return
+
+            # 直接安装右键菜单
+            success = self._install_context_menu_direct(exe_path)
+            if success:
+                messagebox.showinfo("成功", "右键菜单安装成功！\n\n现在可以在文件资源管理器中右键使用VerMan了。")
+                self._check_context_menu_status()
+            else:
+                messagebox.showerror("失败", "右键菜单安装失败")
+
+        except Exception as e:
+            messagebox.showerror("错误", f"安装右键菜单失败: {e}")
+
+    def _find_exe_path(self):
+        """查找exe文件路径"""
+        import os
+        from pathlib import Path
+
+        # 获取当前文件的目录（gui.py所在目录）
+        current_dir = Path(__file__).parent.absolute()
+
+        # 可能的exe文件位置
+        possible_paths = [
+            current_dir / "dist" / "VersionManager.exe",
+            current_dir / "VersionManager.exe",
+            current_dir / "build" / "exe.win-amd64-3.11" / "VersionManager.exe",
+            current_dir / "build" / "exe.win32-3.11" / "VersionManager.exe",
+        ]
+
+        for path in possible_paths:
+            if path.exists():
+                return str(path)
+
+        return None
+
+    def _install_context_menu_direct(self, exe_path):
+        """直接安装右键菜单"""
+        try:
+            import winreg
+
+            # 创建目录背景右键菜单
+            with winreg.CreateKey(winreg.HKEY_CLASSES_ROOT, r"Directory\\Background\\shell\\VerMan") as key:
+                winreg.SetValueEx(key, None, 0, winreg.REG_SZ, "使用VerMan版本管理")
+                with winreg.CreateKey(key, "command") as cmd_key:
+                    winreg.SetValueEx(cmd_key, None, 0, winreg.REG_SZ, f'"{exe_path}" "%V"')
+
+            # 创建文件夹右键菜单
+            with winreg.CreateKey(winreg.HKEY_CLASSES_ROOT, r"Directory\\shell\\VerMan") as key:
+                winreg.SetValueEx(key, None, 0, winreg.REG_SZ, "使用VerMan版本管理")
+                with winreg.CreateKey(key, "command") as cmd_key:
+                    winreg.SetValueEx(cmd_key, None, 0, winreg.REG_SZ, f'"{exe_path}" "%1"')
+
+            # 创建文件右键菜单
+            with winreg.CreateKey(winreg.HKEY_CLASSES_ROOT, r"*\\shell\\VerMan") as key:
+                winreg.SetValueEx(key, None, 0, winreg.REG_SZ, "使用VerMan版本管理")
+                with winreg.CreateKey(key, "command") as cmd_key:
+                    winreg.SetValueEx(cmd_key, None, 0, winreg.REG_SZ, f'"{exe_path}" "%1"')
+
+            return True
+
+        except Exception as e:
+            messagebox.showerror("错误", f"安装注册表项失败: {e}")
+            return False
+
+    def _uninstall_context_menu(self):
+        """卸载右键菜单"""
+        try:
+            if sys.platform != "win32":
+                messagebox.showerror("错误", "当前系统不支持右键菜单功能")
+                return
+
+            # 确认卸载
+            if not messagebox.askyesno("确认", "确定要卸载右键菜单吗？\n卸载后将无法通过右键菜单快速访问VerMan。"):
+                return
+
+            # 直接卸载右键菜单
+            success = self._uninstall_context_menu_direct()
+            if success:
+                messagebox.showinfo("成功", "右键菜单卸载成功！")
+                self._check_context_menu_status()
+            else:
+                messagebox.showerror("失败", "右键菜单卸载失败")
+
+        except Exception as e:
+            messagebox.showerror("错误", f"卸载右键菜单失败: {e}")
+
+    def _uninstall_context_menu_direct(self):
+        """直接卸载右键菜单"""
+        try:
+            import winreg
+
+            # 删除的注册表项
+            registry_keys = [
+                r"Directory\Background\shell\VerMan",
+                r"Directory\shell\VerMan",
+                r"*\shell\VerMan"
+            ]
+
+            success_count = 0
+            for key_path in registry_keys:
+                try:
+                    # 先删除command子键
+                    winreg.DeleteKey(winreg.HKEY_CLASSES_ROOT, key_path + r"\command")
+                    # 再删除主键
+                    winreg.DeleteKey(winreg.HKEY_CLASSES_ROOT, key_path)
+                    success_count += 1
+                except FileNotFoundError:
+                    # 键不存在，跳过
+                    pass
+                except Exception as e:
+                    # 其他错误，记录但继续处理其他键
+                    print(f"删除注册表项失败 {key_path}: {e}")
+
+            if success_count > 0 or True:  # 即使没有找到键也认为是成功的
+                return True
+            else:
+                return False
+
+        except Exception as e:
+            messagebox.showerror("错误", f"删除注册表项失败: {e}")
+            return False

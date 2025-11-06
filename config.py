@@ -107,6 +107,21 @@ class ConfigManager:
         """设置内存中最大版本数"""
         self.set("max_versions_in_memory", count)
 
+    def reset_to_defaults(self):
+        """重置配置到默认值"""
+        default_config = {
+            "recent_projects": [],
+            "window_geometry": "",
+            "ignore_patterns": [
+                "*.log", "*.tmp", "*.temp", "__pycache__", "*.pyc",
+                ".git", ".svn", ".hg", ".DS_Store", "Thumbs.db"
+            ],
+            "auto_backup": True,
+            "max_versions_in_memory": 100
+        }
+        self.config = default_config
+        self.save_config()
+
 
 # 全局配置管理器实例
 config_manager = ConfigManager()
