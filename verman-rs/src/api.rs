@@ -103,6 +103,7 @@ struct CreateVersionPayload<'a> {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct RollbackPayload<'a> {
     path: &'a str,
     version_id: i64,
@@ -110,6 +111,7 @@ struct RollbackPayload<'a> {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ComparePayload<'a> {
     path: &'a str,
     left_version_id: i64,
@@ -117,6 +119,7 @@ struct ComparePayload<'a> {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ExportPayload<'a> {
     path: &'a str,
     version_id: i64,
@@ -130,12 +133,14 @@ struct SaveIgnorePayload<'a> {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct VersionDetailsPayload<'a> {
     path: &'a str,
     version_id: i64,
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct VersionFilePayload<'a> {
     path: &'a str,
     version_id: i64,
