@@ -1,16 +1,89 @@
-# Python-generated files
-__pycache__/
-*.py[oc]
-build/
-wheels/
-*.egg-info
+# OS / editor
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
 
-# Virtual environments
-.venv
-tests
+# Local env / secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+*.local
+.python-version
 .svmini
+.claude/
 CLAUDE.md
-doc/fee.md
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.pyo
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.venv/
+venv/
+env/
+ENV/
+build/
+dist/
+wheels/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Python project outputs
+verman-py/__pycache__/
+verman-py/.venv/
+verman-py/build/
+verman-py/dist/
+verman-py/verman.egg-info/
+
+# Node / frontend
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Rust / Cargo
+target/
+debug/
+
+# Tauri / desktop build outputs
+verman-rs/dist/
+verman-rs/node_modules/
+verman-rs/target/
+verman-rs/src-tauri/target/
+verman-rs/src-tauri/gen/
+verman-rs/logo-square.png
+
+# App local runtime data
+*.db
+*.db-shm
+*.db-wal
+.verman.db
+.vermanignore
 dist/.verman.db
 dist/.vermanignore
-.gitignore
+
+# Packaged executables / installers
+*.exe
+*.msi
+*.pdb
+
+# Project-specific generated files
+dist/verman.exe
+doc/fee.md

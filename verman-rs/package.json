@@ -1,0 +1,14 @@
+{
+  "name": "verman-rs",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "build:web": ".\\.tools\\trunk\\trunk.exe build --release",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.9.1"
+  }
+}
