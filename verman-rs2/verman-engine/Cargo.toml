@@ -1,0 +1,19 @@
+[package]
+name = "verman-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+blake3.workspace = true
+chrono.workspace = true
+globset.workspace = true
+ignore.workspace = true
+jwalk.workspace = true
+notify.workspace = true
+rayon.workspace = true
+walkdir.workspace = true
+verman-core = { path = "../verman-core" }
+verman-storage = { path = "../verman-storage" }
