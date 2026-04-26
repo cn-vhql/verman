@@ -4,35 +4,20 @@ File scanning, hashing, backup, restore, and export helpers.
 
 import fnmatch
 import hashlib
-import logging
 import os
 import shutil
 import tempfile
+import time
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, Iterable, List, Optional, Tuple
 
-
-class _SimpleLogger:
-    """Minimal logger wrapper used across the project."""
-
-    def __init__(self):
-        logging.basicConfig(level=logging.INFO)
-        self.logger = logging.getLogger(__name__)
-
-    def info(self, msg):
-        self.logger.info(msg)
-
-    def error(self, msg):
-        self.logger.error(msg)
-
-    def warning(self, msg):
-        self.logger.warning(msg)
-
-    def debug(self, msg):
-        self.logger.debug(msg)
-
-
-_logger = _SimpleLogger()
+from logger import logger as app_logger
+from models import (
+    ACTIVE_FILE_STATUSES,
+    DEFAULT_IGNORE_PATTERNS,
+    BlockedFile,
+    FileState,
+)
 
 
 class FileManager:
@@ -40,233 +25,289 @@ class FileManager:
 
     def __init__(self, workspace_path: str):
         self.workspace_path = os.path.abspath(workspace_path)
-        self._hash_cache = {}
+        self._hash_cache: Dict[str, Tuple[str, int, int, float]] = {}
         self._cache_max_size = 1000
-        self._cache_ttl = 300
-
-    def _calculate_file_hash(self, file_path: str, force_recalculate: bool = False) -> str:
-        import time
-
-        try:
-            relative_path = os.path.relpath(file_path, self.workspace_path)
-            if not force_recalculate:
-                cached_result = self._get_cached_hash(relative_path, file_path)
-                if cached_result is not None:
-                    return cached_result
-
-            hash_md5 = hashlib.md5()
-            file_size = os.path.getsize(file_path)
-
-            with open(file_path, "rb") as f:
-                if file_size == 0:
-                    hash_md5.update(b"")
-                elif file_size < 10 * 1024 * 1024:
-                    for chunk in iter(lambda: f.read(4096), b""):
-                        hash_md5.update(chunk)
-                else:
-                    while True:
-                        chunk = f.read(64 * 1024)
-                        if not chunk:
-                            break
-                        hash_md5.update(chunk)
-
-            calculated_hash = hash_md5.hexdigest()
-            self._update_hash_cache(relative_path, calculated_hash, file_path)
-            return calculated_hash
-        except (IOError, OSError):
-            return ""
-
-    def _get_cached_hash(self, relative_path: str, file_path: str):
-        try:
-            if relative_path not in self._hash_cache:
-                return None
-
-            cached_hash, cached_time = self._hash_cache[relative_path]
-            import time
-
-            current_time = time.time()
-            if current_time - cached_time > self._cache_ttl:
-                del self._hash_cache[relative_path]
-                return None
-
-            file_mtime = os.path.getmtime(file_path)
-            if file_mtime > cached_time:
-                del self._hash_cache[relative_path]
-                return None
-
-            return cached_hash
-        except (OSError, KeyError):
-            self._hash_cache.pop(relative_path, None)
-            return None
-
-    def _update_hash_cache(self, relative_path: str, file_hash: str, file_path: str):
-        try:
-            import time
-
-            if len(self._hash_cache) >= self._cache_max_size:
-                self._cleanup_hash_cache()
-
-            current_time = time.time()
-            self._hash_cache[relative_path] = (file_hash, current_time)
-        except Exception as e:
-            _logger.debug(f"更新哈希缓存失败 {relative_path}: {e}")
-
-    def _cleanup_hash_cache(self):
-        try:
-            if not self._hash_cache:
-                return
-
-            sorted_items = sorted(self._hash_cache.items(), key=lambda x: x[1][1])
-            keep_count = int(len(sorted_items) * 0.75)
-            self._hash_cache = dict(sorted_items[keep_count:])
-        except Exception as e:
-            _logger.debug(f"清理哈希缓存失败: {e}")
-            self._hash_cache.clear()
+        self._cache_ttl = 300.0
 
     def clear_hash_cache(self):
         self._hash_cache.clear()
 
-    def _read_file_content(self, file_path: str) -> bytes:
-        try:
-            file_size = os.path.getsize(file_path)
-            max_size = 50 * 1024 * 1024
-            if file_size > max_size:
-                raise ValueError(
-                    f"文件过大 ({file_size // 1024 // 1024}MB)，超过限制 ({max_size // 1024 // 1024}MB)"
-                )
+    def scan_workspace(
+        self,
+        ignore_patterns: Optional[List[str]] = None,
+        indexed_files: Optional[Dict[str, Dict[str, int]]] = None,
+    ) -> Tuple[Dict[str, FileState], List[BlockedFile]]:
+        """
+        Scan the workspace and reuse stored hashes when size and mtime match.
+        """
+        indexed_files = indexed_files or {}
+        current_files: Dict[str, FileState] = {}
+        blocked_files: List[BlockedFile] = []
 
-            if file_size < 10 * 1024 * 1024:
-                with open(file_path, "rb") as f:
-                    return f.read()
+        for relative_path, file_path in self._iter_visible_files(ignore_patterns):
+            try:
+                stat_result = os.stat(file_path)
+                file_size = stat_result.st_size
+                mtime_ns = stat_result.st_mtime_ns
+            except OSError as exc:
+                app_logger.warning(f"跳过文件 {relative_path}: {exc}")
+                continue
 
-            content = bytearray()
-            with open(file_path, "rb") as f:
-                while True:
-                    chunk = f.read(4096)
-                    if not chunk:
-                        break
-                    content.extend(chunk)
-                    if len(content) > max_size:
-                        raise ValueError("文件内容过大，超过内存限制")
-            return bytes(content)
-        except (IOError, OSError, ValueError) as e:
-            _logger.error(f"读取文件失败 {file_path}: {e}")
-            return b""
+            indexed_state = indexed_files.get(relative_path)
+            if (
+                indexed_state
+                and indexed_state.get("file_size") == file_size
+                and indexed_state.get("mtime_ns") == mtime_ns
+                and indexed_state.get("file_hash")
+            ):
+                file_hash = indexed_state["file_hash"]
+            else:
+                file_hash = self._calculate_file_hash(file_path, file_size, mtime_ns)
 
-    def scan_workspace(self, ignore_patterns: List[str] = None) -> Dict[str, str]:
-        if ignore_patterns is None:
-            ignore_patterns = []
+            if not file_hash:
+                continue
 
-        file_hashes: Dict[str, str] = {}
-        default_ignore = [
-            ".verman.db",
-            "*.db",
-            "*.sqlite",
-            "*.sqlite3",
-            ".verman_backup",
-            ".verman_temp",
-            "__pycache__",
-            "*.pyc",
-            "*.pyo",
-            ".git",
-            ".svn",
-            ".hg",
-            "*.tmp",
-            "*.temp",
-            "*.log",
-            ".DS_Store",
-            "Thumbs.db",
+            current_files[relative_path] = FileState(
+                relative_path=relative_path,
+                file_hash=file_hash,
+                file_size=file_size,
+                mtime_ns=mtime_ns,
+            )
+
+        return current_files, blocked_files
+
+    def list_workspace_files(self, ignore_patterns: Optional[List[str]] = None) -> List[str]:
+        return [
+            relative_path
+            for relative_path, _ in self._iter_visible_files(ignore_patterns)
         ]
-        all_ignore_patterns = default_ignore + self._load_ignore_file() + ignore_patterns
+
+    def read_relative_file(self, relative_path: str) -> bytes:
+        full_path = os.path.join(self.workspace_path, relative_path)
+        return self._read_file_content(full_path)
+
+    def restore_files(
+        self,
+        version_files: List[Dict],
+        ignore_patterns: Optional[List[str]] = None,
+        backup_current: bool = True,
+    ) -> Dict[str, object]:
+        try:
+            if backup_current:
+                self._backup_current_state(ignore_patterns)
+
+            desired_active = {
+                file_info["relative_path"]: file_info
+                for file_info in version_files
+                if file_info["file_status"] in ACTIVE_FILE_STATUSES
+            }
+            desired_paths = set(desired_active.keys())
+            current_paths = set(self.list_workspace_files(ignore_patterns))
+
+            restored_count = 0
+            removed_count = 0
+            warnings: List[str] = []
+
+            for extra_path in sorted(current_paths - desired_paths):
+                full_path = os.path.join(self.workspace_path, extra_path)
+                if os.path.exists(full_path):
+                    os.remove(full_path)
+                    removed_count += 1
+                    self._cleanup_empty_directories(os.path.dirname(full_path))
+
+            for file_data in version_files:
+                relative_path = file_data["relative_path"]
+                file_status = file_data["file_status"]
+                target_path = os.path.join(self.workspace_path, relative_path)
+
+                if file_status == "delete":
+                    if os.path.exists(target_path):
+                        os.remove(target_path)
+                        removed_count += 1
+                        self._cleanup_empty_directories(os.path.dirname(target_path))
+                    continue
+
+                file_content = file_data.get("file_content")
+                if file_content is None:
+                    raise ValueError(f"版本文件缺少内容: {relative_path}")
+
+                target_dir = os.path.dirname(target_path)
+                if target_dir:
+                    os.makedirs(target_dir, exist_ok=True)
+                with open(target_path, "wb") as file_handle:
+                    file_handle.write(file_content)
+                restored_count += 1
+
+            return {
+                "restored_count": restored_count,
+                "removed_count": removed_count,
+                "warnings": warnings,
+            }
+        except Exception as exc:
+            app_logger.error(f"文件恢复失败: {exc}")
+            raise
+
+    def export_version_files(self, version_files: List[Dict], export_path: str) -> bool:
+        try:
+            for file_data in version_files:
+                if file_data["file_status"] == "delete":
+                    continue
+
+                relative_path = file_data["relative_path"]
+                file_content = file_data.get("file_content")
+                if file_content is None:
+                    raise ValueError(f"导出文件缺少内容: {relative_path}")
+
+                target_path = os.path.join(export_path, relative_path)
+                target_dir = os.path.dirname(target_path)
+                if target_dir:
+                    os.makedirs(target_dir, exist_ok=True)
+                with open(target_path, "wb") as file_handle:
+                    file_handle.write(file_content)
+
+            return True
+        except Exception as exc:
+            app_logger.error(f"导出失败: {exc}")
+            return False
+
+    def _iter_visible_files(self, ignore_patterns: Optional[List[str]]) -> Iterable[Tuple[str, str]]:
+        all_ignore_patterns = list(DEFAULT_IGNORE_PATTERNS)
+        all_ignore_patterns.extend(self._load_ignore_file())
+        all_ignore_patterns.extend(ignore_patterns or [])
 
         if not os.path.exists(self.workspace_path):
             raise FileNotFoundError(f"工作区路径不存在: {self.workspace_path}")
         if not os.access(self.workspace_path, os.R_OK):
             raise PermissionError(f"工作区路径不可读: {self.workspace_path}")
 
-        file_count = 0
         max_files = 10000
+        yielded = 0
 
         for root, dirs, files in os.walk(self.workspace_path):
-            try:
-                relative_root = os.path.relpath(root, self.workspace_path)
-                if relative_root.startswith(".."):
-                    continue
-            except ValueError:
+            relative_root = os.path.relpath(root, self.workspace_path)
+            if relative_root.startswith(".."):
                 continue
 
-            filtered_dirs = []
-            for dir_name in dirs:
-                dir_relative = os.path.relpath(os.path.join(root, dir_name), self.workspace_path)
-                if not self._should_ignore(dir_relative, all_ignore_patterns, is_dir=True):
-                    filtered_dirs.append(dir_name)
-            dirs[:] = filtered_dirs
+            dirs[:] = [
+                dir_name
+                for dir_name in dirs
+                if not self._should_ignore(
+                    os.path.relpath(os.path.join(root, dir_name), self.workspace_path),
+                    all_ignore_patterns,
+                    is_dir=True,
+                )
+            ]
 
             for file_name in files:
-                if file_count >= max_files:
-                    _logger.warning(f"文件数量超过限制 ({max_files})，停止扫描")
-                    return file_hashes
-
                 file_path = os.path.join(root, file_name)
-                if os.path.islink(file_path):
-                    try:
-                        link_target = os.path.realpath(file_path)
-                        target_relative = os.path.relpath(link_target, self.workspace_path)
-                        if target_relative.startswith(".."):
-                            _logger.debug(f"跳过外部链接 {file_path} -> {link_target}")
-                            continue
-                        file_path = link_target
-                    except (OSError, ValueError):
-                        _logger.debug(f"跳过无效链接 {file_path}")
-                        continue
+                file_path = self._resolve_symlink_path(file_path)
+                if file_path is None:
+                    continue
 
-                try:
-                    relative_path = os.path.relpath(file_path, self.workspace_path)
-                    if (
-                        relative_path.startswith("..")
-                        or ".." in relative_path.split(os.sep)
-                        or os.path.isabs(relative_path)
-                    ):
-                        continue
-                except ValueError:
+                relative_path = os.path.relpath(file_path, self.workspace_path)
+                if (
+                    relative_path.startswith("..")
+                    or ".." in relative_path.split(os.sep)
+                    or os.path.isabs(relative_path)
+                ):
                     continue
 
                 if self._should_ignore(relative_path, all_ignore_patterns, is_dir=False):
                     continue
 
-                try:
-                    if not os.access(file_path, os.R_OK):
-                        continue
-
-                    file_size = os.path.getsize(file_path)
-                    if file_size > 100 * 1024 * 1024:
-                        _logger.warning(
-                            f"跳过过大文件 {relative_path} ({file_size // 1024 // 1024}MB)"
-                        )
-                        continue
-
-                    file_hash = self._calculate_file_hash(file_path)
-                    if file_hash:
-                        file_hashes[relative_path] = file_hash
-                        file_count += 1
-                except (OSError, IOError, ValueError) as e:
-                    _logger.warning(f"跳过文件 {relative_path}: {e}")
+                if not os.access(file_path, os.R_OK):
                     continue
 
-        return file_hashes
+                yielded += 1
+                if yielded > max_files:
+                    app_logger.warning(f"文件数量超过限制 ({max_files})，停止扫描")
+                    return
+
+                yield relative_path.replace("\\", "/"), file_path
+
+    def _resolve_symlink_path(self, file_path: str) -> Optional[str]:
+        if not os.path.islink(file_path):
+            return file_path
+
+        try:
+            link_target = os.path.realpath(file_path)
+            target_relative = os.path.relpath(link_target, self.workspace_path)
+            if target_relative.startswith(".."):
+                app_logger.debug(f"跳过外部链接 {file_path} -> {link_target}")
+                return None
+            return link_target
+        except (OSError, ValueError):
+            app_logger.debug(f"跳过无效链接 {file_path}")
+            return None
+
+    def _calculate_file_hash(self, file_path: str, file_size: int, mtime_ns: int) -> str:
+        relative_path = os.path.relpath(file_path, self.workspace_path).replace("\\", "/")
+        cached_result = self._get_cached_hash(relative_path, file_size, mtime_ns)
+        if cached_result is not None:
+            return cached_result
+
+        try:
+            hash_md5 = hashlib.md5()
+            with open(file_path, "rb") as file_handle:
+                chunk_size = 4096 if file_size < 10 * 1024 * 1024 else 64 * 1024
+                for chunk in iter(lambda: file_handle.read(chunk_size), b""):
+                    hash_md5.update(chunk)
+
+            calculated_hash = hash_md5.hexdigest()
+            self._update_hash_cache(relative_path, calculated_hash, file_size, mtime_ns)
+            return calculated_hash
+        except (IOError, OSError) as exc:
+            app_logger.warning(f"计算文件哈希失败 {file_path}: {exc}")
+            return ""
+
+    def _get_cached_hash(
+        self, relative_path: str, file_size: int, mtime_ns: int
+    ) -> Optional[str]:
+        cached_entry = self._hash_cache.get(relative_path)
+        if not cached_entry:
+            return None
+
+        cached_hash, cached_size, cached_mtime_ns, cached_at = cached_entry
+        if time.time() - cached_at > self._cache_ttl:
+            self._hash_cache.pop(relative_path, None)
+            return None
+
+        if cached_size != file_size or cached_mtime_ns != mtime_ns:
+            self._hash_cache.pop(relative_path, None)
+            return None
+
+        return cached_hash
+
+    def _update_hash_cache(self, relative_path: str, file_hash: str, file_size: int, mtime_ns: int):
+        if len(self._hash_cache) >= self._cache_max_size:
+            self._cleanup_hash_cache()
+
+        self._hash_cache[relative_path] = (file_hash, file_size, mtime_ns, time.time())
+
+    def _cleanup_hash_cache(self):
+        if not self._hash_cache:
+            return
+
+        sorted_items = sorted(self._hash_cache.items(), key=lambda item: item[1][3])
+        keep_count = int(len(sorted_items) * 0.75)
+        self._hash_cache = dict(sorted_items[keep_count:])
+
+    def _read_file_content(self, file_path: str) -> bytes:
+        with open(file_path, "rb") as file_handle:
+            return file_handle.read()
 
     def _load_ignore_file(self) -> List[str]:
         ignore_file_path = os.path.join(self.workspace_path, ".vermanignore")
         patterns = []
         try:
             if os.path.exists(ignore_file_path):
-                with open(ignore_file_path, "r", encoding="utf-8") as f:
-                    for line in f:
+                with open(ignore_file_path, "r", encoding="utf-8") as file_handle:
+                    for line in file_handle:
                         line = line.strip()
                         if line and not line.startswith("#"):
                             patterns.append(line)
-        except (IOError, OSError, UnicodeDecodeError) as e:
-            _logger.warning(f"读取忽略文件失败: {e}")
+        except (IOError, OSError, UnicodeDecodeError) as exc:
+            app_logger.warning(f"读取忽略文件失败: {exc}")
         return patterns
 
     def _should_ignore(self, name: str, ignore_patterns: List[str], is_dir: bool = False) -> bool:
@@ -300,203 +341,35 @@ class FileManager:
 
         return False
 
-    def detect_changes(self, current_files: Dict[str, str], previous_files: Dict[str, str]) -> List[Dict]:
-        changes = []
-        current_set = set(current_files.keys())
-        previous_set = set(previous_files.keys())
-
-        for file_path in sorted(current_set - previous_set):
-            if file_path.startswith(".verman"):
-                continue
-            changes.append(
-                {
-                    "relative_path": file_path,
-                    "file_hash": current_files[file_path],
-                    "file_status": "add",
-                }
-            )
-
-        for file_path in sorted(current_set & previous_set):
-            if current_files[file_path] != previous_files[file_path]:
-                changes.append(
-                    {
-                        "relative_path": file_path,
-                        "file_hash": current_files[file_path],
-                        "file_status": "modify",
-                    }
-                )
-
-        for file_path in sorted(previous_set - current_set):
-            if file_path.startswith(".verman"):
-                continue
-            if self._confirm_file_deletion(file_path, previous_files.get(file_path, "")):
-                changes.append(
-                    {
-                        "relative_path": file_path,
-                        "file_hash": previous_files.get(file_path, ""),
-                        "file_status": "delete",
-                    }
-                )
-            else:
-                _logger.info(f"文件 {file_path} 可能被临时移动，暂不记录为删除")
-
-        return changes
-
-    def _confirm_file_deletion(self, file_path: str, original_hash: str) -> bool:
-        try:
-            full_path = os.path.join(self.workspace_path, file_path)
-            if os.path.exists(full_path):
-                return False
-            if self._is_file_temporarily_moved(file_path, original_hash):
-                return False
-            return True
-        except Exception as e:
-            _logger.warning(f"确认文件删除状态时出错 {file_path}: {e}")
-            return True
-
-    def _is_file_temporarily_moved(self, file_path: str, original_hash: str) -> bool:
-        if not original_hash:
-            return False
-
-        try:
-            temp_locations = [
-                ".verman_backup",
-                ".verman_temp",
-                "temp",
-                "tmp",
-                os.path.expanduser("~/.Trash"),
-                os.path.expanduser("~/Desktop"),
-            ]
-
-            for temp_dir in temp_locations:
-                temp_path = os.path.join(self.workspace_path, temp_dir)
-                if os.path.exists(temp_path) and self._search_file_by_hash(temp_path, original_hash, file_path):
-                    return True
-
-            system_temp = tempfile.gettempdir()
-            return self._search_file_by_hash(system_temp, original_hash, file_path)
-        except Exception as e:
-            _logger.debug(f"检查文件临时移动时出错 {file_path}: {e}")
-            return False
-
-    def _search_file_by_hash(self, search_path: str, target_hash: str, original_name: str) -> bool:
-        try:
-            if not os.path.exists(search_path):
-                return False
-
-            max_depth = 3
-            max_files = 100
-            searched_files = 0
-
-            for root, dirs, files in os.walk(search_path):
-                current_depth = os.path.relpath(root, search_path).count(os.sep) + 1
-                if current_depth > max_depth:
-                    continue
-
-                for file_name in files:
-                    if searched_files >= max_files:
-                        return False
-                    searched_files += 1
-
-                    if file_name == os.path.basename(original_name) or searched_files < 50:
-                        file_path = os.path.join(root, file_name)
-                        try:
-                            file_hash = self._calculate_file_hash(file_path)
-                            if file_hash == target_hash:
-                                return True
-                        except Exception:
-                            continue
-            return False
-        except Exception:
-            return False
-
-    def prepare_files_for_version(self, changes: List[Dict]) -> List[Dict]:
-        version_files = []
-        for change in changes:
-            file_data = {
-                "relative_path": change["relative_path"],
-                "file_hash": change["file_hash"],
-                "file_status": change["file_status"],
-            }
-            if change["file_status"] in ["add", "modify"]:
-                file_path = os.path.join(self.workspace_path, change["relative_path"])
-                file_data["file_content"] = self._read_file_content(file_path)
-            else:
-                file_data["file_content"] = None
-            version_files.append(file_data)
-        return version_files
-
-    def restore_files(self, version_files: List[Dict], backup_current: bool = True) -> bool:
-        try:
-            if backup_current:
-                self._backup_current_state()
-
-            for file_data in version_files:
-                relative_path = file_data["relative_path"]
-                file_status = file_data["file_status"]
-                file_content = file_data.get("file_content")
-                target_path = os.path.join(self.workspace_path, relative_path)
-
-                os.makedirs(os.path.dirname(target_path), exist_ok=True)
-
-                if file_status == "delete":
-                    if os.path.exists(target_path):
-                        os.remove(target_path)
-                elif file_status in ["add", "modify", "unmodified"] and file_content is not None:
-                    with open(target_path, "wb") as f:
-                        f.write(file_content)
-
-            return True
-        except Exception as e:
-            _logger.error(f"文件恢复失败: {e}")
-            return False
-
-    def _backup_current_state(self):
+    def _backup_current_state(self, ignore_patterns: Optional[List[str]] = None):
         backup_dir = os.path.join(self.workspace_path, ".verman_backup")
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_path = os.path.join(backup_dir, f"backup_{timestamp}")
 
-        try:
-            os.makedirs(backup_path, exist_ok=True)
-            current_files = self.scan_workspace()
-            backed_up_count = 0
+        os.makedirs(backup_path, exist_ok=True)
+        backed_up_count = 0
 
-            for relative_path in current_files:
-                source_path = os.path.join(self.workspace_path, relative_path)
-                target_path = os.path.join(backup_path, relative_path)
-                target_dir = os.path.dirname(target_path)
-                if target_dir:
-                    os.makedirs(target_dir, exist_ok=True)
+        for relative_path in self.list_workspace_files(ignore_patterns):
+            source_path = os.path.join(self.workspace_path, relative_path)
+            target_path = os.path.join(backup_path, relative_path)
+            target_dir = os.path.dirname(target_path)
+            if target_dir:
+                os.makedirs(target_dir, exist_ok=True)
+            shutil.copy2(source_path, target_path)
+            backed_up_count += 1
 
-                try:
-                    shutil.copy2(source_path, target_path)
-                    backed_up_count += 1
-                except Exception as copy_error:
-                    _logger.error(f"备份文件失败 {relative_path}: {copy_error}")
+        app_logger.info(f"当前状态已备份到: {backup_path}")
+        app_logger.info(f"共备份 {backed_up_count} 个文件")
 
-            _logger.info(f"当前状态已备份到: {backup_path}")
-            _logger.info(f"共备份 {backed_up_count} 个文件")
-        except Exception as e:
-            _logger.error(f"备份失败: {e}")
+    def _cleanup_empty_directories(self, start_dir: str):
+        current_dir = start_dir
+        workspace_root = os.path.abspath(self.workspace_path)
 
-    def export_version_files(self, version_files: List[Dict], export_path: str) -> bool:
-        try:
-            for file_data in version_files:
-                if file_data["file_status"] == "delete":
-                    continue
-
-                relative_path = file_data["relative_path"]
-                file_content = file_data.get("file_content")
-                if file_content is None:
-                    continue
-
-                target_path = os.path.join(export_path, relative_path)
-                os.makedirs(os.path.dirname(target_path), exist_ok=True)
-
-                with open(target_path, "wb") as f:
-                    f.write(file_content)
-
-            return True
-        except Exception as e:
-            _logger.error(f"导出失败: {e}")
-            return False
+        while current_dir and os.path.abspath(current_dir).startswith(workspace_root):
+            if os.path.abspath(current_dir) == workspace_root:
+                break
+            try:
+                os.rmdir(current_dir)
+            except OSError:
+                break
+            current_dir = os.path.dirname(current_dir)

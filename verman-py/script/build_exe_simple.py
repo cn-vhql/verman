@@ -11,6 +11,12 @@ import shutil
 import subprocess
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from app_info import APP_NAME, APP_DISPLAY_VERSION, APP_VERSION_NUMBER
+
 
 def run_command(command, description=""):
     """运行命令并处理结果"""
@@ -18,31 +24,31 @@ def run_command(command, description=""):
     try:
         result = subprocess.run(command, shell=True, capture_output=True, text=True, encoding='utf-8')
         if result.returncode == 0:
-            print(f"✓ 成功")
+            print("[OK] 成功")
             if result.stdout:
                 print(result.stdout)
             return True
         else:
-            print(f"✗ 失败")
+            print("[FAIL] 失败")
             if result.stderr:
                 print(f"错误: {result.stderr}")
             if result.stdout:
                 print(f"输出: {result.stdout}")
             return False
     except Exception as e:
-        print(f"✗ 异常: {e}")
+        print(f"[FAIL] 异常: {e}")
         return False
 
 
 def build_exe():
     """执行打包"""
     print("=" * 60)
-    print("               VerMan EXE 打包工具")
+    print(f"               {APP_NAME} EXE 打包工具")
     print("=" * 60)
     print()
 
     # 获取项目根目录
-    project_root = Path(__file__).parent.parent
+    project_root = PROJECT_ROOT
     os.chdir(project_root)
     print(f"工作目录: {project_root}")
 
@@ -57,23 +63,9 @@ def build_exe():
         print(f"错误: 缺少必要文件: {', '.join(missing_files)}")
         return False
 
-    # 检查images目录（VIP二维码图片）
-    images_dir = Path("images")
-    if images_dir.exists():
-        print(f"✓ 找到images目录: {images_dir}")
-        required_images = ["alipay_qr.png", "wechat_qr.png"]
-        for img in required_images:
-            img_path = images_dir / img
-            if img_path.exists():
-                print(f"  ✓ {img}")
-            else:
-                print(f"  ⚠ {img} 不存在")
-    else:
-        print(f"⚠ images目录不存在，VIP二维码将显示为文字")
-
     # 清理之前的构建
     print("\n1. 清理之前的构建...")
-    dirs_to_clean = ["build", "dist", "__pycache__", "VersionManager.spec"]
+    dirs_to_clean = ["build", "dist", "__pycache__", "VersionManager.spec", "version_info.txt"]
     for item in dirs_to_clean:
         path = Path(item)
         if path.exists():
@@ -96,24 +88,41 @@ def build_exe():
         if not run_command("pip install pyinstaller", "安装PyInstaller"):
             return False
 
-    # 检查PIL（Pillow）- VIP功能需要
-    try:
-        from PIL import Image
-        print("  - PIL已安装")
-    except ImportError:
-        print("  - 正在安装PIL...")
-        if not run_command("pip install Pillow", "安装PIL"):
-            print("  - 警告: PIL安装失败，VIP二维码将显示为文字")
-
     # 创建spec文件
     print("\n3. 创建打包配置...")
-
-    # 检查images目录并添加到datas
     datas = []
-    images_dir = Path("images")
-    if images_dir.exists():
-        datas.append(('images', 'images'))
-        print("  - 添加images目录到打包资源")
+    version_parts = tuple(int(part) for part in APP_VERSION_NUMBER.split(".")) + (0,)
+    version_info_content = f"""VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers={version_parts},
+    prodvers={version_parts},
+    mask=0x3F,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo([
+      StringTable(
+        '040904B0',
+        [
+          StringStruct('CompanyName', 'Version Manager Team'),
+          StringStruct('FileDescription', '{APP_NAME}'),
+          StringStruct('FileVersion', '{APP_VERSION_NUMBER}'),
+          StringStruct('InternalName', 'VersionManager'),
+          StringStruct('OriginalFilename', 'VersionManager.exe'),
+          StringStruct('ProductName', '{APP_NAME}'),
+          StringStruct('ProductVersion', '{APP_VERSION_NUMBER}')
+        ]
+      )
+    ]),
+    VarFileInfo([VarStruct('Translation', [1033, 1200])])
+  ]
+)"""
+    with open("version_info.txt", "w", encoding="utf-8") as f:
+        f.write(version_info_content)
 
     spec_content = f'''# -*- mode: python ; coding: utf-8 -*-
 
@@ -132,9 +141,6 @@ a = Analysis(
         'tkinter.filedialog',
         'tkinter.scrolledtext',
         'tkinter.simpledialog',
-        'PIL',
-        'PIL.Image',
-        'PIL.ImageTk',
     ],
     hookspath=[],
     hooksconfig={{}},
@@ -166,6 +172,7 @@ exe = EXE(
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
+    version='version_info.txt',
     codesign_identity=None,
     entitlements_file=None,
     icon=None,
@@ -174,7 +181,7 @@ exe = EXE(
 
     with open("VersionManager.spec", "w", encoding="utf-8") as f:
         f.write(spec_content)
-    print("  - VersionManager.spec 已创建")
+    print(f"  - VersionManager.spec 已创建 ({APP_DISPLAY_VERSION})")
 
     # 执行打包
     print("\n4. 开始打包...")
@@ -185,12 +192,12 @@ exe = EXE(
     exe_path = Path("dist/VersionManager.exe")
     if exe_path.exists():
         file_size = exe_path.stat().st_size / (1024 * 1024)
-        print(f"\n✓ 打包成功!")
+        print(f"\n[OK] 打包成功!")
         print(f"  文件位置: {exe_path.absolute()}")
         print(f"  文件大小: {file_size:.1f} MB")
         return True
     else:
-        print("\n✗ 打包失败: 未找到输出文件")
+        print("\n[FAIL] 打包失败: 未找到输出文件")
         return False
 
 

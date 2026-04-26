@@ -19,7 +19,7 @@ Desktop.ini
 .claude/
 CLAUDE.md
 
-# Python
+# Python caches / tooling
 __pycache__/
 *.py[cod]
 *.pyd
@@ -37,19 +37,22 @@ htmlcov/
 venv/
 env/
 ENV/
-build/
-dist/
-wheels/
 *.egg-info/
 .eggs/
 pip-wheel-metadata/
+wheels/
 
-# Python project outputs
-verman-py/__pycache__/
-verman-py/.venv/
+# Build outputs
+build/
+dist/
+target/
+debug/
+
+# Python app generated files
 verman-py/build/
 verman-py/dist/
 verman-py/verman.egg-info/
+verman-py/version_info.txt
 
 # Node / frontend
 node_modules/
@@ -57,10 +60,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-
-# Rust / Cargo
-target/
-debug/
 
 # Tauri / desktop build outputs
 verman-rs/dist/
@@ -75,6 +74,7 @@ verman-rs/logo-square.png
 *.db-shm
 *.db-wal
 .verman.db
+.verman.db.bak.*
 .vermanignore
 dist/.verman.db
 dist/.vermanignore

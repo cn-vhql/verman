@@ -1,11 +1,10 @@
 [project]
 name = "verman"
-version = "1.0.0"
+version = "1.0.1"
 description = "一款轻量级的本地文件版本管理工具，支持文件夹绑定、文件变更监控、版本记录和回滚"
 readme = "README.md"
 requires-python = ">=3.8"
 dependencies = [
-    "pillow>=10.4.0",
     "pyinstaller>=6.16.0",
 ]
 authors = [
