@@ -2,6 +2,9 @@
 Project lifecycle management for VerMan.
 """
 
+from __future__ import annotations
+
+import glob
 import os
 import shutil
 from datetime import datetime
@@ -10,6 +13,19 @@ from typing import Optional
 from database import DatabaseManager
 from file_manager import FileManager
 from logger import logger as app_logger
+from project_paths import (
+    ensure_metadata_dir,
+    find_existing_database_path,
+    get_backup_dir,
+    get_ignore_file_path,
+    get_legacy_backup_dir,
+    get_legacy_database_path,
+    get_metadata_dir,
+    get_project_database_path,
+    is_project_workspace,
+    iter_database_sidecar_paths,
+    normalize_workspace_path,
+)
 
 
 class ProjectManager:
@@ -22,15 +38,16 @@ class ProjectManager:
 
     def create_project(self, workspace_path: str) -> bool:
         try:
-            workspace_path = os.path.abspath(workspace_path)
+            workspace_path = normalize_workspace_path(workspace_path)
             if not os.path.isdir(workspace_path):
                 return False
-
-            db_path = os.path.join(workspace_path, ".verman.db")
-            if os.path.exists(db_path):
+            if is_project_workspace(workspace_path):
                 return False
 
+            ensure_metadata_dir(workspace_path)
             self._create_ignore_file(workspace_path)
+
+            db_path = get_project_database_path(workspace_path)
             self.db_manager = DatabaseManager(db_path)
             self.db_manager.set_config("project_path", workspace_path)
             self.db_manager.set_config("create_time", self._get_current_time())
@@ -44,12 +61,13 @@ class ProjectManager:
 
     def open_project(self, workspace_path: str) -> bool:
         try:
-            workspace_path = os.path.abspath(workspace_path)
+            workspace_path = normalize_workspace_path(workspace_path)
             if not os.path.isdir(workspace_path):
                 return False
 
-            db_path = os.path.join(workspace_path, ".verman.db")
-            if not os.path.exists(db_path):
+            self._migrate_legacy_layout(workspace_path)
+            db_path = find_existing_database_path(workspace_path)
+            if not db_path:
                 return False
 
             if DatabaseManager.requires_migration(db_path):
@@ -79,15 +97,18 @@ class ProjectManager:
 
     def delete_project(self, workspace_path: str) -> bool:
         try:
-            workspace_path = os.path.abspath(workspace_path)
-            db_path = os.path.join(workspace_path, ".verman.db")
-            if not os.path.exists(db_path):
+            workspace_path = normalize_workspace_path(workspace_path)
+            if not is_project_workspace(workspace_path):
                 return False
 
             if self.current_project_path == workspace_path:
                 self.close_project()
 
-            os.remove(db_path)
+            metadata_dir = get_metadata_dir(workspace_path)
+            if os.path.isdir(metadata_dir):
+                shutil.rmtree(metadata_dir)
+
+            self._delete_legacy_metadata(workspace_path)
             return True
         except Exception as exc:
             app_logger.error(f"删除项目失败: {exc}")
@@ -128,21 +149,80 @@ class ProjectManager:
             app_logger.error(f"获取项目信息失败: {exc}")
             return None
 
+    def _migrate_legacy_layout(self, workspace_path: str):
+        legacy_db_path = get_legacy_database_path(workspace_path)
+        new_db_path = get_project_database_path(workspace_path)
+        if not os.path.exists(legacy_db_path) or os.path.exists(new_db_path):
+            return
+
+        ensure_metadata_dir(workspace_path)
+        for legacy_path, new_path in zip(
+            iter_database_sidecar_paths(legacy_db_path),
+            iter_database_sidecar_paths(new_db_path),
+        ):
+            if os.path.exists(legacy_path):
+                os.replace(legacy_path, new_path)
+                app_logger.info(f"已迁移项目数据库文件: {legacy_path} -> {new_path}")
+
+        for backup_path in glob.glob(f"{legacy_db_path}.bak.*"):
+            suffix = backup_path[len(legacy_db_path) :]
+            migrated_backup_path = f"{new_db_path}{suffix}"
+            os.replace(backup_path, migrated_backup_path)
+            app_logger.info(f"已迁移数据库备份: {backup_path} -> {migrated_backup_path}")
+
+        legacy_backup_dir = get_legacy_backup_dir(workspace_path)
+        backup_dir = get_backup_dir(workspace_path)
+        if os.path.isdir(legacy_backup_dir):
+            if os.path.exists(backup_dir):
+                self._merge_directory(legacy_backup_dir, backup_dir)
+                shutil.rmtree(legacy_backup_dir)
+            else:
+                shutil.move(legacy_backup_dir, backup_dir)
+            app_logger.info(f"已迁移工作区备份目录: {legacy_backup_dir} -> {backup_dir}")
+
+    def _merge_directory(self, source_dir: str, target_dir: str):
+        for root, _, files in os.walk(source_dir):
+            relative_root = os.path.relpath(root, source_dir)
+            destination_root = (
+                target_dir if relative_root == "." else os.path.join(target_dir, relative_root)
+            )
+            os.makedirs(destination_root, exist_ok=True)
+            for filename in files:
+                source_path = os.path.join(root, filename)
+                target_path = os.path.join(destination_root, filename)
+                os.replace(source_path, target_path)
+
+    def _delete_legacy_metadata(self, workspace_path: str):
+        legacy_db_path = get_legacy_database_path(workspace_path)
+        for sidecar_path in iter_database_sidecar_paths(legacy_db_path):
+            if os.path.exists(sidecar_path):
+                os.remove(sidecar_path)
+
+        for backup_path in glob.glob(f"{legacy_db_path}.bak.*"):
+            if os.path.exists(backup_path):
+                os.remove(backup_path)
+
+        legacy_backup_dir = get_legacy_backup_dir(workspace_path)
+        if os.path.isdir(legacy_backup_dir):
+            shutil.rmtree(legacy_backup_dir)
+
     def _backup_database(self, db_path: str):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_path = f"{db_path}.bak.{timestamp}"
+        os.makedirs(os.path.dirname(backup_path), exist_ok=True)
         shutil.copy2(db_path, backup_path)
         app_logger.info(f"已备份旧数据库: {backup_path}")
 
     def _create_ignore_file(self, workspace_path: str):
-        ignore_file_path = os.path.join(workspace_path, ".vermanignore")
+        ignore_file_path = get_ignore_file_path(workspace_path)
         if os.path.exists(ignore_file_path):
             return
 
         ignore_content = """# VerMan 忽略文件
-# 此文件用于指定版本管理中需要忽略的文件和目录
+# 该文件用于指定版本管理中需要忽略的文件和目录
 
-# 版本管理数据库和备份
+# VerMan 元数据
+.verman/
 .verman.db
 .verman.db-shm
 .verman.db-wal

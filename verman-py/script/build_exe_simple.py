@@ -15,7 +15,13 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from app_info import APP_NAME, APP_DISPLAY_VERSION, APP_VERSION_NUMBER
+from app_info import (
+    APP_DISPLAY_VERSION,
+    APP_ICON_ICO,
+    APP_ICON_PNG,
+    APP_NAME,
+    APP_VERSION_NUMBER,
+)
 
 
 def run_command(command, description=""):
@@ -90,7 +96,10 @@ def build_exe():
 
     # 创建spec文件
     print("\n3. 创建打包配置...")
-    datas = []
+    datas = [
+        (APP_ICON_PNG, "assets"),
+        (APP_ICON_ICO, "assets"),
+    ]
     version_parts = tuple(int(part) for part in APP_VERSION_NUMBER.split(".")) + (0,)
     version_info_content = f"""VSVersionInfo(
   ffi=FixedFileInfo(
@@ -175,7 +184,7 @@ exe = EXE(
     version='version_info.txt',
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,
+    icon='{APP_ICON_ICO}',
 )
 '''
 

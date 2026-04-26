@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 DEFAULT_IGNORE_PATTERNS = [
+    ".verman/",
     ".verman.db",
     ".verman.db-shm",
     ".verman.db-wal",

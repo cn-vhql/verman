@@ -12,6 +12,7 @@ if ROOT not in sys.path:
 
 from database import DatabaseManager
 from file_manager import FileManager
+from project_paths import ensure_metadata_dir, get_backup_dir, get_project_database_path
 from version_manager import VersionManager
 
 
@@ -19,7 +20,8 @@ class VersionFlowTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.workspace = self.temp_dir.name
-        self.db_manager = DatabaseManager(os.path.join(self.workspace, ".verman.db"))
+        ensure_metadata_dir(self.workspace)
+        self.db_manager = DatabaseManager(get_project_database_path(self.workspace))
         self.file_manager = FileManager(self.workspace)
         self.version_manager = VersionManager(self.db_manager, self.file_manager)
 
@@ -49,6 +51,15 @@ class VersionFlowTests(unittest.TestCase):
         self.assertIn("large.bin", effective_files)
         self.assertEqual(len(effective_files["large.bin"]["file_content"]), (50 * 1024 * 1024) + 1)
 
+    def test_scan_ignores_verman_metadata_directory(self):
+        self._write_file(".verman/internal.txt", b"metadata")
+        self._write_file("visible.txt", b"workspace")
+
+        snapshot = self.version_manager.refresh_workspace(force=True)
+
+        self.assertIn("visible.txt", snapshot.current_files)
+        self.assertNotIn(".verman/internal.txt", snapshot.current_files)
+
     def test_rollback_restores_target_state_and_removes_extra_files(self):
         self._write_file("root.txt", b"v1-root")
         self._write_file("nested/child.txt", b"v1-child")
@@ -73,6 +84,26 @@ class VersionFlowTests(unittest.TestCase):
         self.assertEqual(self._read_file("nested/child.txt"), b"v1-child")
         self.assertFalse(os.path.exists(os.path.join(self.workspace, "new.txt")))
         self.assertFalse(os.path.exists(os.path.join(self.workspace, "stray.txt")))
+
+    def test_rollback_backup_uses_verman_metadata_directory(self):
+        self._write_file("tracked.txt", b"v1")
+        snapshot = self.version_manager.refresh_workspace(force=True)
+        result = self.version_manager.create_version("v1", scan_snapshot=snapshot)
+        self.assertTrue(result.success, msg=result.error)
+        version_id = self.db_manager.get_latest_version_id()
+
+        self._write_file("tracked.txt", b"v2")
+
+        rollback_result = self.version_manager.rollback_to_version(version_id, backup_current=True)
+        self.assertTrue(rollback_result.success, msg=rollback_result.error)
+
+        backup_dir = get_backup_dir(self.workspace)
+        self.assertTrue(os.path.isdir(backup_dir))
+        backup_entries = os.listdir(backup_dir)
+        self.assertEqual(len(backup_entries), 1)
+        backup_file = os.path.join(backup_dir, backup_entries[0], "tracked.txt")
+        self.assertTrue(os.path.exists(backup_file))
+        self.assertFalse(os.path.exists(os.path.join(self.workspace, ".verman_backup")))
 
     def test_effective_version_rebuild_preserves_content_for_unmodified_rows(self):
         self._write_file("a.txt", b"version-1-a")

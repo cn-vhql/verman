@@ -10,12 +10,14 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import Callable, List, Optional
 
-from app_info import APP_DISPLAY_VERSION, APP_NAME
+from app_assets import get_asset_path
+from app_info import APP_DISPLAY_VERSION, APP_ICON_ICO, APP_ICON_PNG, APP_NAME
 from config import config_manager
 from dialogs import VersionCompareDialog, VersionDetailsDialog
 from logger import operation_logger
 from models import CreateVersionResult, RollbackResult, ScanSnapshot
 from project_manager import ProjectManager
+from project_paths import is_project_workspace
 from runtime_paths import find_packaged_executable
 from version_manager import VersionManager
 
@@ -28,6 +30,9 @@ class VersionManagerGUI:
         self.root.title("VerMan - 版本管理工具")
         self.root.geometry(config_manager.get_window_geometry() or "900x600")
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        self._window_icon_image: Optional[tk.PhotoImage] = None
+        self._status_icon_image: Optional[tk.PhotoImage] = None
+        self._apply_app_icon()
 
         self.project_manager = ProjectManager()
         self.version_manager: Optional[VersionManager] = None
@@ -166,11 +171,34 @@ class VersionManagerGUI:
         self.status_frame = ttk.Frame(self.root)
         self.status_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=5, pady=2)
 
+        self.status_icon_label = ttk.Label(self.status_frame, image=self._status_icon_image)
+        self.status_icon_label.pack(side=tk.LEFT, padx=(0, 6))
+
         self.status_label = ttk.Label(self.status_frame, text="就绪", relief=tk.SUNKEN, anchor=tk.W)
         self.status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         self.db_status_label = ttk.Label(self.status_frame, text="数据库: 未连接", relief=tk.SUNKEN)
         self.db_status_label.pack(side=tk.RIGHT, padx=(5, 0))
+
+    def _apply_app_icon(self):
+        try:
+            icon_png_path = get_asset_path(APP_ICON_PNG)
+            if icon_png_path.exists():
+                self._window_icon_image = tk.PhotoImage(file=str(icon_png_path))
+                self.root.iconphoto(True, self._window_icon_image)
+
+                subsample_factor = max(1, self._window_icon_image.width() // 16)
+                self._status_icon_image = self._window_icon_image.subsample(
+                    subsample_factor,
+                    subsample_factor,
+                )
+
+            icon_ico_path = get_asset_path(APP_ICON_ICO)
+            if sys.platform == "win32" and icon_ico_path.exists():
+                self.root.iconbitmap(default=str(icon_ico_path))
+        except Exception:
+            self._window_icon_image = None
+            self._status_icon_image = None
 
     def _ensure_not_busy(self) -> bool:
         if self._active_future is not None:
@@ -684,8 +712,7 @@ class VersionManagerGUI:
             messagebox.showerror("错误", f"启动路径不存在: {startup_path}")
             return
 
-        db_path = os.path.join(candidate_path, ".verman.db")
-        if os.path.exists(db_path):
+        if is_project_workspace(candidate_path):
             self._open_project(candidate_path)
             return
 

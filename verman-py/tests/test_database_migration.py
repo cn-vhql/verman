@@ -14,6 +14,11 @@ if ROOT not in sys.path:
 
 from models import CURRENT_SCHEMA_VERSION
 from project_manager import ProjectManager
+from project_paths import (
+    get_metadata_dir,
+    get_project_database_path,
+    get_legacy_database_path,
+)
 from version_manager import VersionManager
 
 
@@ -21,7 +26,7 @@ class DatabaseMigrationTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.workspace = self.temp_dir.name
-        self.db_path = os.path.join(self.workspace, ".verman.db")
+        self.db_path = get_legacy_database_path(self.workspace)
         self.legacy_content = b"legacy version content"
         self.manager = None
         self._write_file("legacy.txt", self.legacy_content)
@@ -36,7 +41,12 @@ class DatabaseMigrationTests(unittest.TestCase):
         self.manager = ProjectManager()
         self.assertTrue(self.manager.open_project(self.workspace))
 
-        backup_paths = glob.glob(os.path.join(self.workspace, ".verman.db.bak.*"))
+        migrated_db_path = get_project_database_path(self.workspace)
+        self.assertTrue(os.path.isdir(get_metadata_dir(self.workspace)))
+        self.assertTrue(os.path.exists(migrated_db_path))
+        self.assertFalse(os.path.exists(self.db_path))
+
+        backup_paths = glob.glob(f"{migrated_db_path}.bak.*")
         self.assertEqual(len(backup_paths), 1)
         self.assertTrue(os.path.exists(backup_paths[0]))
 

@@ -18,6 +18,7 @@ from models import (
     BlockedFile,
     FileState,
 )
+from project_paths import get_backup_dir, get_ignore_file_path
 
 
 class FileManager:
@@ -297,7 +298,7 @@ class FileManager:
             return file_handle.read()
 
     def _load_ignore_file(self) -> List[str]:
-        ignore_file_path = os.path.join(self.workspace_path, ".vermanignore")
+        ignore_file_path = get_ignore_file_path(self.workspace_path)
         patterns = []
         try:
             if os.path.exists(ignore_file_path):
@@ -311,13 +312,18 @@ class FileManager:
         return patterns
 
     def _should_ignore(self, name: str, ignore_patterns: List[str], is_dir: bool = False) -> bool:
-        normalized_name = name.replace("\\", "/").strip("./")
+        normalized_name = name.replace("\\", "/").strip()
+        if normalized_name.startswith("./"):
+            normalized_name = normalized_name[2:]
+        normalized_name = normalized_name.strip("/")
         basename = os.path.basename(normalized_name.rstrip("/"))
 
         for pattern in ignore_patterns:
             normalized_pattern = pattern.replace("\\", "/").strip()
             if not normalized_pattern:
                 continue
+            if normalized_pattern.startswith("./"):
+                normalized_pattern = normalized_pattern[2:]
 
             if normalized_pattern.endswith("/"):
                 if not is_dir:
@@ -342,7 +348,7 @@ class FileManager:
         return False
 
     def _backup_current_state(self, ignore_patterns: Optional[List[str]] = None):
-        backup_dir = os.path.join(self.workspace_path, ".verman_backup")
+        backup_dir = get_backup_dir(self.workspace_path)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_path = os.path.join(backup_dir, f"backup_{timestamp}")
 

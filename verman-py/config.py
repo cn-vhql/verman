@@ -23,6 +23,7 @@ DEFAULT_CONFIG = {
         ".hg/",
         ".DS_Store",
         "Thumbs.db",
+        ".verman/",
         ".verman_backup/",
         ".verman_temp/",
         ".verman.db.bak.*",

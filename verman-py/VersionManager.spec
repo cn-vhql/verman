@@ -6,7 +6,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('assets/verman-icon.png', 'assets'), ('assets/verman-icon.ico', 'assets')],
     hiddenimports=[
         'sqlite3',
         'tkinter',
@@ -49,5 +49,5 @@ exe = EXE(
     version='version_info.txt',
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,
+    icon='assets/verman-icon.ico',
 )
