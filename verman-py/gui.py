@@ -16,6 +16,7 @@ from dialogs import VersionCompareDialog, VersionDetailsDialog
 from logger import operation_logger
 from models import CreateVersionResult, RollbackResult, ScanSnapshot
 from project_manager import ProjectManager
+from runtime_paths import find_packaged_executable
 from version_manager import VersionManager
 
 
@@ -977,15 +978,7 @@ class ContextMenuManagerDialog:
             messagebox.showerror("错误", f"安装右键菜单失败: {exc}")
 
     def _find_exe_path(self) -> Optional[str]:
-        current_dir = Path(__file__).parent.absolute()
-        possible_paths = [
-            current_dir / "dist" / "VersionManager.exe",
-            current_dir / "VersionManager.exe",
-        ]
-        for path in possible_paths:
-            if path.exists():
-                return str(path)
-        return None
+        return find_packaged_executable(search_roots=[Path(__file__).resolve().parent])
 
     def _install_context_menu_direct(self, exe_path: str) -> bool:
         try:

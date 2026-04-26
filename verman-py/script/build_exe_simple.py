@@ -85,7 +85,7 @@ def build_exe():
         print(f"  - PyInstaller已安装: {PyInstaller.__version__}")
     except ImportError:
         print("  - 正在安装PyInstaller...")
-        if not run_command("pip install pyinstaller", "安装PyInstaller"):
+        if not run_command(f'"{sys.executable}" -m pip install pyinstaller', "安装PyInstaller"):
             return False
 
     # 创建spec文件
@@ -185,7 +185,7 @@ exe = EXE(
 
     # 执行打包
     print("\n4. 开始打包...")
-    if not run_command("pyinstaller VersionManager.spec", "PyInstaller打包"):
+    if not run_command(f'"{sys.executable}" -m PyInstaller VersionManager.spec', "PyInstaller打包"):
         return False
 
     # 检查结果
