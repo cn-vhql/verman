@@ -608,7 +608,7 @@ impl VersionManager {
         for path in set1.intersection(&set2) {
             let f1 = map1[path];
             let f2 = map2[path];
-            if f1.file_hash != f2.file_hash || f1.file_status != f2.file_status {
+            if f1.file_hash != f2.file_hash {
                 different.push(DiffEntry {
                     relative_path: f1.relative_path.clone(),
                     file_in_v1: DiffSide {

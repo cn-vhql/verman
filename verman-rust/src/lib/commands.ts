@@ -132,6 +132,10 @@ export async function openFileWithSystem(path: string): Promise<void> {
   return invoke("open_file_with_system", { path });
 }
 
+export async function openVersionFile(versionId: number, relativePath: string): Promise<void> {
+  return invoke("open_version_file", { versionId, relativePath });
+}
+
 // ── Dialog helpers ──
 
 import { open, save } from "@tauri-apps/plugin-dialog";

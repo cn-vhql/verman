@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { getVersion } from "@tauri-apps/api/app";
   import * as cmd from "./lib/commands";
   import StatusBar from "./lib/components/StatusBar.svelte";
   import SettingsDialog from "./lib/components/SettingsDialog.svelte";
@@ -33,8 +34,10 @@
   let showContextMenu = $state(false);
   let showAbout = $state(false);
   let progress = $state<ProgressPayload | null>(null);
+  let appVersion = $state("");
 
   onMount(() => {
+    getVersion().then(v => appVersion = v);
     const unlisteners: Array<() => void> = [];
     const setupListeners = async () => {
       unlisteners.push(
@@ -347,7 +350,7 @@
           <p style="color: var(--text-secondary); font-size: 12px;">
             Windows 优先的本地文件版本管理工具。
             <br>支持工作区扫描、版本快照、回滚、导出和版本比较。
-            <br><br>版本: V1.0.2 (Rust/Tauri)
+            <br><br>版本: V{appVersion} (Rust/Tauri)
           </p>
         </div>
         <div class="dialog-footer">

@@ -346,9 +346,8 @@ pub fn check_context_menu_status() -> Result<i32, String> {
 
         let mut count = 0;
         for key_path in &keys {
-            match RegKey::predef(HKEY_CLASSES_ROOT).open_subkey(key_path) {
-                Ok(_) => count += 1,
-                Err(_) => {}
+            if RegKey::predef(HKEY_CLASSES_ROOT).open_subkey(key_path).is_ok() {
+                count += 1;
             }
         }
         Ok(count)
@@ -416,21 +415,15 @@ pub fn uninstall_context_menu() -> Result<bool, String> {
 
         for key_path in &keys {
             // Delete command subkey first
-            match RegKey::predef(HKEY_CLASSES_ROOT).open_subkey_with_flags(key_path, KEY_WRITE) {
-                Ok(key) => {
-                    key.delete_subkey("command").ok();
-                }
-                Err(_) => {}
+            if let Ok(key) = RegKey::predef(HKEY_CLASSES_ROOT).open_subkey_with_flags(key_path, KEY_WRITE) {
+                key.delete_subkey("command").ok();
             }
             // Delete the main key
-            match winreg::RegKey::predef(HKEY_CLASSES_ROOT)
+            if let Ok(parent) = winreg::RegKey::predef(HKEY_CLASSES_ROOT)
                 .open_subkey_with_flags(key_path.trim_end_matches('\\'), KEY_WRITE)
             {
-                Ok(parent) => {
-                    let name = key_path.rsplit('\\').next().unwrap_or(key_path);
-                    parent.delete_subkey(name).ok();
-                }
-                Err(_) => {}
+                let name = key_path.rsplit('\\').next().unwrap_or(key_path);
+                parent.delete_subkey(name).ok();
             }
         }
 
@@ -446,8 +439,62 @@ pub fn uninstall_context_menu() -> Result<bool, String> {
 // ── Misc Commands ──
 
 #[tauri::command]
-pub fn open_file_with_system(path: String) -> Result<(), String> {
-    open::that(&path).map_err(|e| format!("Failed to open file: {}", e))
+pub fn open_file_with_system(state: State<'_, AppState>, path: String) -> Result<(), String> {
+    let pm = state.project_manager.lock().map_err(|e| e.to_string())?;
+    let project_path = pm.get_project_path().ok_or("No project is open")?;
+    let full_path = project_path.join(&path);
+    open::that(&full_path).map_err(|e| format!("Failed to open file: {}", e))
+}
+
+#[tauri::command]
+pub fn open_version_file(
+    state: State<'_, AppState>,
+    version_id: i64,
+    relative_path: String,
+) -> Result<(), String> {
+    use std::io::Write;
+
+    let pm = state.project_manager.lock().map_err(|e| e.to_string())?;
+    let vm = pm.version_manager.as_ref().ok_or("No open project")?;
+
+    let files = vm
+        .db_manager
+        .get_effective_version_files(version_id, true)
+        .map_err(|e| format!("Failed to get version files: {}", e))?;
+
+    let file = files
+        .iter()
+        .find(|f| f.relative_path == relative_path)
+        .ok_or_else(|| format!("File '{}' not found in version", relative_path))?;
+
+    let content = match &file.file_content {
+        Some(bytes) => bytes.clone(),
+        None => {
+            let workspace_path = pm.get_project_path().ok_or("No project path")?;
+            let blob_path = crate::project_paths::get_blob_path(workspace_path, &file.file_hash);
+            std::fs::read(&blob_path)
+                .map_err(|e| format!("Failed to read blob content: {}", e))?
+        }
+    };
+
+    let temp_dir = std::env::temp_dir().join("verman");
+    std::fs::create_dir_all(&temp_dir).map_err(|e| format!("Failed to create temp dir: {}", e))?;
+    let temp_file = temp_dir.join(&relative_path);
+    if let Some(parent) = temp_file.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create parent dir: {}", e))?;
+    }
+    {
+        let mut f = std::fs::File::create(&temp_file)
+            .map_err(|e| format!("Failed to create temp file: {}", e))?;
+        f.write_all(&content)
+            .map_err(|e| format!("Failed to write temp file: {}", e))?;
+        f.sync_all().map_err(|e| format!("Failed to sync temp file: {}", e))?;
+    }
+
+    open::that_detached(&temp_file)
+        .map_err(|e| format!("Failed to open file: {}", e))?;
+    Ok(())
 }
 
 #[tauri::command]

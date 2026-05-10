@@ -1,6 +1,6 @@
 [package]
 name = "verman"
-version = "1.0.2"
+version = "1.0.5"
 description = "轻量级本地文件版本管理工具"
 authors = ["Version Manager Team"]
 edition = "2021"

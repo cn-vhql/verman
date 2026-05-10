@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use rusqlite::{params, Connection};
@@ -16,6 +16,18 @@ pub struct DatabaseManager {
 #[allow(dead_code)]
 impl DatabaseManager {
     pub fn new(db_path: &Path) -> Result<Self, String> {
+        // Before opening an existing database, create a timestamped backup
+        // to protect against data loss from WAL inconsistencies during init.
+        if db_path.exists() {
+            let ts = chrono::Local::now().format("%Y%m%d_%H%M%S");
+            let backup_path = PathBuf::from(format!("{}.bak.{}", db_path.to_string_lossy(), ts));
+            if let Err(e) = std::fs::copy(db_path, &backup_path) {
+                tracing::warn!(error = %e, "Failed to backup database before open");
+            } else {
+                tracing::info!(backup = %backup_path.display(), "Database backed up before open");
+            }
+        }
+
         let conn = Connection::open(db_path).map_err(|e| format!("Failed to open database: {}", e))?;
         let mgr = Self { conn: Mutex::new(conn) };
         mgr.initialize()?;
@@ -105,13 +117,13 @@ impl DatabaseManager {
 
                 let has_status = conn
                     .prepare("PRAGMA table_info(files)")
-                    .and_then(|mut stmt| {
+                    .map(|mut stmt| {
                         let cols: Vec<String> = stmt
                             .query_map([], |row| row.get::<_, String>(1))
                             .unwrap()
                             .filter_map(|r| r.ok())
                             .collect();
-                        Ok(cols.contains(&"file_status".to_string()))
+                        cols.contains(&"file_status".to_string())
                     })
                     .unwrap_or(false);
                 if !has_status {

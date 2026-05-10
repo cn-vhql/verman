@@ -142,7 +142,6 @@ impl ProjectManager {
             for entry in entries.flatten() {
                 let suffix = entry
                     .to_string_lossy()
-                    .to_string()
                     .split(&format!("{}.bak.", legacy_db.display()))
                     .nth(1)
                     .unwrap_or("")

@@ -1,0 +1,59 @@
+name: Build VerMan (Rust)
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "verman-rust/**"
+      - ".github/workflows/build-rust.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        working-directory: verman-rust
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: "9"
+          package_json_file: verman-rust/package.json
+
+      - name: Install frontend dependencies
+        run: pnpm install
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Rust dependencies
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "verman-rust/src-tauri"
+
+      - name: Build Tauri app
+        run: cargo tauri build
+
+      - name: Upload MSI installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: VerMan-MSI
+          path: verman-rust/src-tauri/target/release/bundle/msi/*.msi
+
+      - name: Upload NSIS installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: VerMan-NSIS
+          path: verman-rust/src-tauri/target/release/bundle/nsis/*.exe

@@ -43,7 +43,7 @@ pub struct ScanSnapshot {
     pub scan_id: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CreateVersionResult {
     pub success: bool,
     pub version_number: Option<String>,
@@ -53,38 +53,13 @@ pub struct CreateVersionResult {
     pub error: Option<String>,
 }
 
-impl Default for CreateVersionResult {
-    fn default() -> Self {
-        Self {
-            success: false,
-            version_number: None,
-            change_count: 0,
-            blocked_files: Vec::new(),
-            warnings: Vec::new(),
-            error: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RollbackResult {
     pub success: bool,
     pub restored_count: i64,
     pub removed_count: i64,
     pub warnings: Vec<String>,
     pub error: Option<String>,
-}
-
-impl Default for RollbackResult {
-    fn default() -> Self {
-        Self {
-            success: false,
-            restored_count: 0,
-            removed_count: 0,
-            warnings: Vec::new(),
-            error: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

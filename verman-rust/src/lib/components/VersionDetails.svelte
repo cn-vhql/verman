@@ -11,6 +11,12 @@
   let loading = $state(true);
   let errorMsg = $state("");
 
+  // Sort: changed files (add/modify/delete) first, unmodified last
+  function sortFiles(files: typeof details.files) {
+    const order: Record<string, number> = { add: 0, modify: 1, delete: 2, unmodified: 3 };
+    return [...files].sort((a, b) => (order[a.file_status] ?? 9) - (order[b.file_status] ?? 9));
+  }
+
   onMount(async () => {
     try {
       details = await cmd.getVersionDetails(versionId);
@@ -23,22 +29,25 @@
 
   async function handleOpenFile(path: string) {
     try {
-      await cmd.openFileWithSystem(path);
-    } catch (e) {
-      // ignore
+      await cmd.openVersionFile(versionId, path);
+    } catch (e: any) {
+      errorMsg = `打开文件失败: ${e}`;
     }
   }
 </script>
 
 <div class="dialog-overlay" onclick={onclose}>
-  <div class="dialog-panel" style="min-width: 560px; max-height: 75vh;" onclick={(e) => e.stopPropagation()}>
+  <div class="dialog-panel" style="min-width: 560px; max-height: 90vh;" onclick={(e) => e.stopPropagation()}>
     <div class="dialog-title">版本详情</div>
     <div class="dialog-body">
       {#if loading}
         <div class="loading">加载中...</div>
-      {:else if errorMsg}
+      {:else if errorMsg && !details}
         <div class="error-msg">{errorMsg}</div>
       {:else if details}
+        {#if errorMsg}
+          <div class="error-msg">{errorMsg}</div>
+        {/if}
         <div class="detail-header">
           <div class="detail-row">
             <span class="detail-label">版本号:</span>
@@ -76,7 +85,7 @@
           </div>
           <div class="files-body">
             {#if details.files.length > 0}
-              <VirtualList items={details.files} rowHeight={24} overscan={10}>
+              <VirtualList items={sortFiles(details.files)} rowHeight={24} overscan={10}>
                 {#snippet children(file)}
                   <div
                     class="file-row"

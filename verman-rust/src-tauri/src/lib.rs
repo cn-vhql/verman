@@ -69,6 +69,7 @@ pub fn run() {
             commands::uninstall_context_menu,
             // Misc
             commands::open_file_with_system,
+            commands::open_version_file,
             commands::is_project_workspace,
         ])
         .run(tauri::generate_context!())
