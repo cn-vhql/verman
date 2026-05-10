@@ -23,7 +23,7 @@
     actionMsg = "";
     isError = false;
     try {
-      const ok = await cmd.installContextMenu("");
+      const ok = await cmd.installContextMenu();
       if (ok) {
         actionMsg = "右键菜单安装成功";
         status = 2;

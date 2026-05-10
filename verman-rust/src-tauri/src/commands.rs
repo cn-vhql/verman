@@ -14,6 +14,7 @@ pub struct AppState {
     pub config_manager: Mutex<ConfigManager>,
     pub operation_logger: OperationLogger,
     pub app_handle: Mutex<Option<tauri::AppHandle>>,
+    pub startup_path: Mutex<Option<String>>,
 }
 
 // ── Project Commands ──
@@ -360,11 +361,16 @@ pub fn check_context_menu_status() -> Result<i32, String> {
 }
 
 #[tauri::command]
-pub fn install_context_menu(exe_path: String) -> Result<bool, String> {
+pub fn install_context_menu() -> Result<bool, String> {
     #[cfg(target_os = "windows")]
     {
         use winreg::enums::*;
         use winreg::RegKey;
+
+        let exe_path = std::env::current_exe()
+            .map_err(|e| format!("Failed to get executable path: {}", e))?
+            .to_string_lossy()
+            .to_string();
 
         let entries: [(&str, &str); 3] = [
             (r"Directory\Background\shell\VerMan", "%V"),
@@ -395,7 +401,6 @@ pub fn install_context_menu(exe_path: String) -> Result<bool, String> {
 
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = exe_path;
         Err("Context menu is only supported on Windows".to_string())
     }
 }
@@ -437,6 +442,12 @@ pub fn uninstall_context_menu() -> Result<bool, String> {
 }
 
 // ── Misc Commands ──
+
+#[tauri::command]
+pub fn get_startup_path(state: State<'_, AppState>) -> Result<Option<String>, String> {
+    let mut path = state.startup_path.lock().map_err(|e| e.to_string())?;
+    Ok(path.take()) // take so it's only consumed once
+}
 
 #[tauri::command]
 pub fn open_file_with_system(state: State<'_, AppState>, path: String) -> Result<(), String> {

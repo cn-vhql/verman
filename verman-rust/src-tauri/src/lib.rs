@@ -17,11 +17,15 @@ use tauri::Manager;
 pub fn run() {
     logger::setup_tracing();
 
+    // Handle command-line argument: path passed from context menu
+    let startup_path: Option<String> = std::env::args().nth(1)
+        .filter(|p| std::path::Path::new(p).exists());
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
-        .setup(|app| {
+        .setup(move |app| {
             let app_handle = app.handle().clone();
 
             let config_manager = config::ConfigManager::new();
@@ -33,6 +37,7 @@ pub fn run() {
                 config_manager: Mutex::new(config_manager),
                 operation_logger,
                 app_handle: Mutex::new(Some(app_handle)),
+                startup_path: Mutex::new(startup_path),
             };
 
             app.manage(app_state);
@@ -71,6 +76,7 @@ pub fn run() {
             commands::open_file_with_system,
             commands::open_version_file,
             commands::is_project_workspace,
+            commands::get_startup_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

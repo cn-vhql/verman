@@ -116,14 +116,16 @@ export async function checkContextMenuStatus(): Promise<number> {
   return invoke("check_context_menu_status");
 }
 
-export async function installContextMenu(
-  exePath: string
-): Promise<boolean> {
-  return invoke("install_context_menu", { exePath });
+export async function installContextMenu(): Promise<boolean> {
+  return invoke("install_context_menu");
 }
 
 export async function uninstallContextMenu(): Promise<boolean> {
   return invoke("uninstall_context_menu");
+}
+
+export async function getStartupPath(): Promise<string | null> {
+  return invoke("get_startup_path");
 }
 
 // ── Misc ──
