@@ -43,6 +43,9 @@ jobs:
         with:
           workspaces: "verman-rust/src-tauri"
 
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
       - name: Build Tauri app
         run: cargo tauri build
 
