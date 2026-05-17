@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicedoc/file-server/main/public/tauri.schema.json",
   "productName": "VerMan",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "identifier": "com.verman.app",
   "build": {
     "frontendDist": "../dist",
