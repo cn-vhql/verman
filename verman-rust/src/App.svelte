@@ -56,41 +56,53 @@
       );
     };
     setupListeners().then(async () => {
-      // Handle startup path from context menu
       const startPath = await cmd.getStartupPath();
       if (startPath) {
-        const isWorkspace = await cmd.isProjectWorkspace(startPath);
-        if (isWorkspace) {
-          try {
-            const ok = await cmd.openProject(startPath);
-            if (ok) {
-              projectOpen = true;
-              projectPath = startPath;
-              await refreshData(false);
-              statusMessage = "项目已通过右键菜单打开";
-            }
-          } catch (e) {
-            statusMessage = "打开项目失败";
-          }
-        } else {
-          try {
-            const ok = await cmd.createProject(startPath);
-            if (ok) {
-              projectOpen = true;
-              projectPath = startPath;
-              await refreshData(false);
-              statusMessage = "项目已通过右键菜单创建";
-            }
-          } catch (e) {
-            statusMessage = "创建项目失败";
-          }
-        }
+        await handleStartupPath(startPath);
       }
     });
     return () => {
       unlisteners.forEach((fn) => fn());
     };
   });
+
+  async function handleStartupPath(startPath: string) {
+    const isWorkspace = await cmd.isProjectWorkspace(startPath);
+    if (isWorkspace) {
+      try {
+        const ok = await cmd.openProject(startPath);
+        if (ok) {
+          projectOpen = true;
+          projectPath = startPath;
+          await refreshData(false);
+          statusMessage = "项目已通过右键菜单打开";
+        }
+      } catch (e) {
+        statusMessage = "打开项目失败";
+      }
+      return;
+    }
+
+    const shouldCreate = confirm(
+      `当前文件夹还不是 VerMan 项目。\n\n是否在这里创建项目？\n${startPath}`
+    );
+    if (!shouldCreate) {
+      statusMessage = "已取消在当前文件夹创建项目";
+      return;
+    }
+
+    try {
+      const ok = await cmd.createProject(startPath);
+      if (ok) {
+        projectOpen = true;
+        projectPath = startPath;
+        await refreshData(false);
+        statusMessage = "项目已通过右键菜单创建";
+      }
+    } catch (e) {
+      statusMessage = "创建项目失败";
+    }
+  }
 
   async function refreshData(force = true) {
     if (!projectOpen) return;

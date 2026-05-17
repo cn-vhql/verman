@@ -18,8 +18,22 @@ pub fn run() {
     logger::setup_tracing();
 
     // Handle command-line argument: path passed from context menu
-    let startup_path: Option<String> = std::env::args().nth(1)
-        .filter(|p| std::path::Path::new(p).exists());
+    let startup_path: Option<String> = std::env::args().nth(1).and_then(|arg| {
+        let path = std::path::PathBuf::from(arg);
+        if !path.exists() {
+            return None;
+        }
+
+        let normalized_path = if path.is_file() {
+            path.parent()
+                .map(std::path::Path::to_path_buf)
+                .unwrap_or(path)
+        } else {
+            path
+        };
+
+        Some(normalized_path.to_string_lossy().to_string())
+    });
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
